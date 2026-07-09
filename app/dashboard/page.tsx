@@ -167,6 +167,22 @@ function DashboardInner() {
     }
   }
 
+  /* --- Section 4: đánh dấu task hoàn thành trực tiếp (optimistic) --------- */
+  async function toggleTaskDone(t: TaskWithProject) {
+    const prevStatus = t.status
+    setTasks((prev) =>
+      prev.map((x) => (x.id === t.id ? { ...x, status: 'done', updated_at: new Date().toISOString() } : x))
+    )
+    const { error } = await supabase
+      .from('tasks')
+      .update({ status: 'done', updated_at: new Date().toISOString() })
+      .eq('id', t.id)
+    if (error) {
+      alert(error.message)
+      setTasks((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: prevStatus } : x)))
+    }
+  }
+
   /* --- Section 6: cập nhật % goal (optimistic) --------------------------- */
   async function updateGoalPercent(goal: Goal, percent: number) {
     const clamped = Math.max(0, Math.min(100, percent))
@@ -426,6 +442,13 @@ function DashboardInner() {
                       key={t.id}
                       className="flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-3.5 py-2.5"
                     >
+                      <input
+                        type="checkbox"
+                        checked={false}
+                        onChange={() => toggleTaskDone(t)}
+                        title="Đánh dấu hoàn thành"
+                        className="h-4 w-4 shrink-0 accent-indigo-600"
+                      />
                       <Link
                         href={`/tasks/${t.id}`}
                         className="mr-auto font-medium text-slate-700 hover:text-indigo-700"
