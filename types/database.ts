@@ -22,6 +22,7 @@ export type Task = {
   due_date: string | null // kiểu date -> chuỗi 'YYYY-MM-DD'
   created_at: string
   updated_at: string
+  recurrence_group_id: string | null // nhóm task cùng chuỗi lặp lại; null = task đơn lẻ
 }
 
 // Task kèm tên project khi embed qua FK: .select('..., projects(name)')

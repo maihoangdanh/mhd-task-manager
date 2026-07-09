@@ -4,17 +4,20 @@ Nguồn chuẩn (source of truth) cho frontend-developer và qa-inspector. Front
 
 - Project ID: `wvudgvdrgoiocalthbsi`
 - Project URL: `https://wvudgvdrgoiocalthbsi.supabase.co`
-- Migration: `supabase/migrations/20260709120000_init_schema.sql`
+- Migrations (chạy theo thứ tự timestamp):
+  1. `supabase/migrations/20260709120000_init_schema.sql` — khởi tạo 3 bảng + RLS.
+  2. `supabase/migrations/20260709160000_add_recurrence_group_id.sql` — thêm cột `recurrence_group_id` vào `tasks` (tính năng task lặp lại).
 
 ## QUAN TRỌNG — cách áp dụng migration (người dùng tự chạy)
 
-Môi trường agent này KHÔNG có network/CLI credentials tới Supabase, nên migration CHƯA được chạy thật. Người dùng cần tự áp dụng:
+Môi trường agent này KHÔNG có network/CLI credentials tới Supabase, nên migration CHƯA được chạy thật. Người dùng cần tự áp dụng, theo thứ tự:
 
 1. Vào Supabase Dashboard -> chọn project `wvudgvdrgoiocalthbsi`.
 2. Mở **SQL Editor**.
-3. Dán toàn bộ nội dung file `supabase/migrations/20260709120000_init_schema.sql`.
-4. Bấm **Run**.
+3. Dán toàn bộ nội dung file `supabase/migrations/20260709120000_init_schema.sql` -> **Run** (nếu đã chạy trước đó thì bỏ qua).
+4. Dán toàn bộ nội dung file `supabase/migrations/20260709160000_add_recurrence_group_id.sql` -> **Run** (migration MỚI cho task lặp lại — CẦN chạy để cột `recurrence_group_id` tồn tại).
 5. Kiểm tra tab **Authentication -> Policies** thấy RLS đã bật (enabled) cho cả 3 bảng.
+6. Kiểm tra bảng `tasks` (Table Editor) đã có cột `recurrence_group_id`.
 
 ## Quy ước đặt tên — điểm dễ gây lỗi ranh giới
 
@@ -65,10 +68,19 @@ RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) 
 | due_date | date | có | null | Hạn chót (chỉ ngày) |
 | created_at | timestamptz | không | `now()` | Thời điểm tạo |
 | updated_at | timestamptz | không | `now()` | Cập nhật lần cuối (frontend tự set `now()` khi update; chưa có trigger tự động) |
+| recurrence_group_id | uuid | có | null | Nhóm các task cùng một chuỗi lặp lại. `null` = task đơn lẻ. Thêm bởi migration `20260709160000`. Có partial index `where recurrence_group_id is not null`. |
 
 RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) with check (auth.uid() = user_id)`.
 
 Lưu ý cho frontend: `updated_at` KHÔNG có trigger tự cập nhật ở DB. Khi update task, gửi kèm `updated_at: new Date().toISOString()` nếu muốn giá trị chính xác.
+
+### Cách dùng `recurrence_group_id` (task lặp lại hàng ngày trong khoảng thời gian)
+
+- Mỗi ngày trong khoảng vẫn là **1 row task riêng** (mỗi row có `due_date` của ngày đó). Đây KHÔNG phải recurrence rule động — không tự sinh row theo thời gian.
+- Khi tạo một chuỗi lặp: frontend sinh **một** uuid mới (vd `crypto.randomUUID()`), rồi INSERT nhiều row task, tất cả cùng gán `recurrence_group_id` = uuid đó.
+- Task đơn lẻ (tạo bình thường): để `recurrence_group_id` = `null` (không gửi field này khi insert cũng được, default là null).
+- Xóa cả chuỗi: `supabase.from('tasks').delete().eq('recurrence_group_id', groupId)` — partial index giúp query này nhanh. RLS vẫn tự giới hạn theo user, không cần lọc thêm `user_id`.
+- Nhận diện task thuộc chuỗi trong UI: `row.recurrence_group_id != null`.
 
 ---
 

@@ -36,12 +36,14 @@ function TasksInner() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | TaskStatus>('all')
+  // Task thuộc chuỗi lặp đang chờ xác nhận cách xóa (null = không mở modal).
+  const [deleteTarget, setDeleteTarget] = useState<TaskWithProject | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     const { data, error } = await supabase
       .from('tasks')
-      .select('id, title, status, priority, due_date, project_id, projects(name)')
+      .select('id, title, status, priority, due_date, project_id, recurrence_group_id, projects(name)')
       .order('created_at', { ascending: false })
     if (error) setError(error.message)
     else setTasks((data as unknown as TaskWithProject[]) ?? [])
@@ -52,14 +54,36 @@ function TasksInner() {
     load()
   }, [load])
 
-  async function handleDelete(id: string) {
-    if (!confirm('Xóa task này?')) return
+  function requestDelete(task: TaskWithProject) {
+    if (task.recurrence_group_id) {
+      // Task thuộc chuỗi -> mở modal hỏi xóa 1 ngày hay cả chuỗi.
+      setDeleteTarget(task)
+      return
+    }
+    if (confirm('Xóa task này?')) deleteOne(task.id)
+  }
+
+  async function deleteOne(id: string) {
     const { error } = await supabase.from('tasks').delete().eq('id', id)
     if (error) {
       alert(error.message)
       return
     }
     setTasks((prev) => prev.filter((t) => t.id !== id))
+    setDeleteTarget(null)
+  }
+
+  async function deleteChain(groupId: string) {
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('recurrence_group_id', groupId)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    setTasks((prev) => prev.filter((t) => t.recurrence_group_id !== groupId))
+    setDeleteTarget(null)
   }
 
   async function toggleDone(task: TaskWithProject) {
@@ -155,6 +179,11 @@ function TasksInner() {
                   <span className={`pill ${PRIORITY_STYLE[task.priority]}`}>
                     {PRIORITY_LABEL[task.priority]}
                   </span>
+                  {task.recurrence_group_id && (
+                    <span className="pill bg-violet-100 text-violet-700" title="Task lặp lại">
+                      🔁 Lặp
+                    </span>
+                  )}
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-slate-400">
                   {task.due_date && <span>📅 Hạn: {task.due_date}</span>}
@@ -168,7 +197,7 @@ function TasksInner() {
                 Sửa
               </Link>
               <button
-                onClick={() => handleDelete(task.id)}
+                onClick={() => requestDelete(task)}
                 className="shrink-0 rounded-lg px-2.5 py-1 text-sm font-medium text-rose-600 hover:bg-rose-50"
               >
                 Xóa
@@ -176,6 +205,53 @@ function TasksInner() {
             </li>
           ))}
         </ul>
+      )}
+
+      {deleteTarget && deleteTarget.recurrence_group_id && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setDeleteTarget(null)}
+        >
+          <div className="card w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-indigo-950">Xóa task lặp lại</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              Task “{deleteTarget.title}” thuộc một chuỗi lặp lại{' '}
+              (
+              {
+                tasks.filter(
+                  (t) => t.recurrence_group_id === deleteTarget.recurrence_group_id
+                ).length
+              }{' '}
+              task). Bạn muốn xóa như thế nào?
+            </p>
+            <div className="mt-5 flex flex-col gap-2.5">
+              <button
+                onClick={() => deleteOne(deleteTarget.id)}
+                className="btn btn-ghost w-full"
+              >
+                Xóa chỉ ngày này
+              </button>
+              <button
+                onClick={() => deleteChain(deleteTarget.recurrence_group_id!)}
+                className="btn btn-danger w-full"
+              >
+                Xóa cả chuỗi (
+                {
+                  tasks.filter(
+                    (t) => t.recurrence_group_id === deleteTarget.recurrence_group_id
+                  ).length
+                }{' '}
+                task)
+              </button>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="w-full rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-100"
+              >
+                Hủy
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
