@@ -105,6 +105,17 @@ export default function TaskForm({ task }: { task?: Task }) {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // Khi bật chế độ lặp lại lần đầu, gợi ý sẵn khoảng "hôm nay -> cuối tháng này"
+  // thay vì để trống/autofill của trình duyệt gây nhầm lẫn ngày kết thúc trước ngày bắt đầu.
+  useEffect(() => {
+    if (recurring && !startDate && !endDate) {
+      const today = new Date()
+      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+      setStartDate(formatYMD(today))
+      setEndDate(formatYMD(endOfMonth))
+    }
+  }, [recurring, startDate, endDate])
+
   function toggleWeekday(day: number) {
     setExcludedWeekdays((prev) => {
       const next = new Set(prev)
@@ -311,6 +322,7 @@ export default function TaskForm({ task }: { task?: Task }) {
               <input
                 type="date"
                 value={endDate}
+                min={startDate || undefined}
                 onChange={(e) => setEndDate(e.target.value)}
                 className={inputClass}
               />
@@ -382,8 +394,10 @@ export default function TaskForm({ task }: { task?: Task }) {
                   {weekdayExclusionParts.length > 0 && <>, trừ {weekdayExclusionParts.join(', ')}</>}
                   {excludedDatesInRange > 0 && <>, và {excludedDatesInRange} ngày bạn chọn</>}.
                 </>
+              ) : endDate < startDate ? (
+                'Ngày kết thúc phải sau ngày bắt đầu.'
               ) : (
-                'Không có ngày hợp lệ nào trong khoảng đã chọn.'
+                'Không có ngày hợp lệ nào trong khoảng đã chọn (đã bị loại trừ hết).'
               )}
             </p>
           )}
