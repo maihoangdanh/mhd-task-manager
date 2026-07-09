@@ -180,3 +180,63 @@ Phương pháp: đọc đồng thời cả 3 nơi; tự trace logic sinh ngày b
 ### Kết luận
 - **Cross-boundary cho tính năng task lặp lại: PASS toàn bộ.** Tên cột `recurrence_group_id` khớp 3 nơi (migration/type/code); logic sinh ngày đúng (inclusive, loại trừ thứ+ngày, không lệch timezone — đã trace); insert set `user_id` cho mọi row (thỏa RLS); xóa 1-ngày dùng `id`, xóa-chuỗi dùng `recurrence_group_id`. Không có lỗi chặn.
 - Task #10 (QA): HOÀN THÀNH — không còn lỗi pending.
+
+---
+
+## Kết quả QA #6 — 2026-07-09 — Rebuild `/dashboard` (8 khối) + 3 bảng mới + 2 cột mới trên schedule_events
+
+Nguồn: `supabase/migrations/20260709170000_add_notes_goals_freelance.sql` + `types/database.ts` ↔ `app/dashboard/page.tsx`, đối chiếu schema-contract L89-159 + pages-map L58-64.
+Phương pháp: đọc đồng thời migration ↔ type ↔ query; tự trace logic ngày/tuần bằng ví dụ cụ thể.
+Phạm vi: grep xác nhận chỉ `app/dashboard/page.tsx` + `types/database.ts` chạm 3 bảng mới → toàn bộ ranh giới nằm gọn trong dashboard.
+
+### 1) Tên cột 3 bảng mới + 2 cột mới — khớp CHÍNH XÁC (migration ↔ type ↔ query)
+- **notes** (migration L15-21): id, user_id, content, color, created_at ↔ `Note` (database.ts:57-63) đủ 5 cột, `color: string | null` khớp nullable ↔ query `.from('notes').select('*')`. KHỚP.
+- **goals** (L26-35): id, user_id, title, period, progress_percent, target_date, created_at, updated_at ↔ `Goal` (database.ts:67-76) đủ 8 cột; `progress_percent: number` (int), `target_date: string | null` khớp; `GoalPeriod='week'|'month'` khớp CHECK `period in ('week','month')`. KHỚP.
+- **freelance_projects** (L40-49): id, user_id, client_name, project_name, revenue, status, created_at, updated_at ↔ `FreelanceProject` (database.ts:80-89) đủ 8 cột; `revenue: string` (numeric→string, ĐÚNG); `FreelanceStatus='in_progress'|'almost_done'|'done'` khớp CHECK. KHỚP.
+- **schedule_events +2 cột** (L56-58): `completed boolean not null default false`, `project_id uuid references projects(id) on delete set null` ↔ `ScheduleEvent` (database.ts:40-42) `completed: boolean`, `project_id: string | null`; `ScheduleEventWithProject` thêm `projects: {name}|null`. Query dashboard select đúng: `id, title, start_time, end_time, completed, project_id, projects(name)`. KHỚP.
+- Enum UI khớp CHECK ở cả nhãn/style: `FREELANCE_LABEL`/`FREELANCE_STYLE` (page:43-52) đủ 3 key; goals slider min0/max100 + `updateGoalPercent` clamp 0..100 (page:172) khớp CHECK `between 0 and 100`.
+
+### 2) `revenue` numeric→string luôn qua `Number()` — không cộng/so sánh string
+- Grep toàn repo: chỉ dashboard + types dùng `revenue`. MỌI điểm dùng đều `Number()`:
+  - Hiển thị: `formatRevenue(revenue) = Number(revenue).toLocaleString('vi-VN')+'đ'` (page:97-99), gọi ở page:468.
+  - Modal khởi tạo: `String(Number(initial.revenue))` (page:767).
+  - Payload lưu: `revenue: Number(revenue) || 0` (page:780).
+- KHÔNG có phép cộng/so sánh `revenue` dạng string ở đâu (không có tổng doanh thu). Stat "freelance đang chạy" lọc theo `status`, không đụng revenue. PASS.
+
+### 3) Mọi INSERT set `user_id` (RLS `with check`)
+- `addGoal` insert `{ ..., user_id: user.id }` (page:186-192), guard `if (!user) return` (:185). ✓
+- `addNote` insert `{ ..., user_id: user.id }` (page:224-228), guard `if (!user) return` (:223). ✓
+- `FreelanceModal` INSERT `insert({ ...payload, user_id: userId })` (page:788), guard `if (!userId) return` (:774); `userId` truyền từ `user?.id ?? ''` (:618) — chuỗi rỗng → return sớm, không insert mồ côi. ✓
+- schedule_events: dashboard KHÔNG insert event (chỉ UPDATE `completed`) → không có INSERT thiếu user_id. Toggle `.update({ completed }).eq('id')` KHÔNG set `updated_at` — ĐÚNG vì `schedule_events` không có cột `updated_at` (schema L93-103). ✓
+- UPDATE goals (`updated_at` có) + freelance (`updated_at` có) đều gửi `updated_at: new Date().toISOString()` (page:176, 786) — đúng contract (chưa có trigger DB). UPDATE không cần set lại user_id (RLS `using` kiểm row cũ). PASS.
+
+### 4) Logic "Theo dõi thói quen" — đã tự trace
+- **Khoảng tuần T2→CN local:** `weekDays(base)` (page:78-89) — `offsetToMonday = day===0 ? -6 : 1-day`. Trace: CN(0)→-6 (về T2 tuần chứa CN đó, CN là cuối tuần); T2(1)→0; T5(4)→-3. `setHours(0,0,0,0)` + 7 ngày. Dùng giờ ĐỊA PHƯƠNG (getFullYear/getMonth/getDate qua `toYmd`), không UTC → không lệch múi giờ. VN không DST.
+- **Lọc tuần:** `habitTasks` = `recurrence_group_id` truthy && `due_date` trong `[weekYmds[0], weekYmds[6]]` (page:270-276). So sánh chuỗi `YYYY-MM-DD` lexicographic = đúng thứ tự thời gian (cùng format). ✓
+- **Group theo `recurrence_group_id`:** map key = `recurrence_group_id!`, `byDate` key = `due_date!` (page:277-282). ✓
+- **Điều kiện tick xanh:** `done = group.byDate.get(ymd)?.status === 'done'` (page:563) — chỉ xanh khi có task đúng ngày ĐÓ **và** `status==='done'`; ô không có task hoặc chưa done → xám. ✓
+- **Trace ví dụ:** thói quen G, rows: T2 07-06 `done` · T3 07-07 `todo` · T4 07-08 `done`; tuần 07-06→07-12. Grid: T2 xanh · T3 xám · T4 xanh · T5-CN xám. Đúng, không lệch cột ngày.
+
+### 5) "Lịch trình hôm nay" — lọc ngày + join đúng quan hệ
+- **Lọc trong ngày hôm nay (không lệch múi giờ):** `todayStart`=local 00:00:00.000, `todayEnd`=local 23:59:59.999 (page:116-119); query `.gte('start_time', todayStart.toISOString()).lte('start_time', todayEnd.toISOString())` (page:136-137). `start_time` là `timestamptz` (mốc tuyệt đối); so sánh trên mốc tuyệt đối với biên local-đổi-sang-UTC là ĐÚNG cách — sự kiện lúc 08:00 địa phương hôm nay nằm đúng trong khoảng. Không lệch múi giờ. Hiển thị giờ qua `toLocaleTimeString('vi-VN')` (page:363) → đổi về local. ✓
+- **Join `projects(name)` qua `project_id` mới:** `schedule_events` chỉ có DUY NHẤT 1 FK tới `projects` (`project_id`) → embed `projects(name)` KHÔNG mơ hồ (task_id trỏ tới `tasks`, khác bảng). "Nguồn" = `ev.projects?.name ?? 'Cá nhân'` (page:377). ✓
+
+### 6) Stat card đầu trang — công thức đúng
+- **Task hôm nay x/y:** `todayTasks` = `due_date === toYmd(now)` (local) (page:120,248); `todayDone` = trong đó `status==='done'` (page:249); hiển thị `${todayDone}/${todayTasks.length}` (page:311). ✓
+- **Freelance đang chạy:** `freelance.filter(f => f.status !== 'done').length` (page:250) = in_progress + almost_done. Khớp pages-map. ✓
+- **% mục tiêu TB:** `activeGoals` = `progress_percent < 100` (page:251); `avgGoal` = round(TB progress_percent), guard length===0→0 (page:252-255). Khớp định nghĩa "active" pages-map L62. ✓
+
+### Verify
+- `npx tsc --noEmit`: **PASS** (exit 0) — không lỗi type, không `any` che lỗi (cast `as unknown as` chỉ ở tasks/events, xem advisory).
+
+### Fail
+- (không có lỗi ranh giới — không cần chuyển yêu cầu sửa cho frontend-developer)
+
+### Quan sát nhỏ (advisory — KHÔNG chặn)
+- `setTasks(taskRes.data as unknown as TaskWithProject[])` (page:143) và `setEvents(... as unknown as ScheduleEventWithProject[])` (page:144): query chọn TẬP CON cột nhưng cast về type ĐẦY ĐỦ. An toàn hiện tại vì dashboard KHÔNG đọc cột chưa select (`description`, `user_id`, `task_id`, `created_at`, `updated_at`). Cùng mẫu advisory QA #3/#5. `freelance/goals/notes` dùng `select('*')` + single cast → sạch hơn.
+- Điều kiện chạy thật: người dùng PHẢI chạy migration `20260709170000` trên Supabase SQL Editor trước, nếu không 3 bảng + 2 cột chưa tồn tại → mọi query dashboard lỗi. Đã ghi rõ schema-contract L20.
+- "Lịch trình hôm nay" lọc theo `start_time` trong ngày → sự kiện bắt đầu hôm qua kéo sang hôm nay KHÔNG hiện. Đúng theo spec ("lịch trình hôm nay" = bắt đầu hôm nay), không phải lỗi.
+
+### Kết luận
+- **Cross-boundary DB ↔ Frontend cho rebuild `/dashboard` + 3 bảng mới + 2 cột schedule_events: PASS toàn bộ.** Tên cột khớp CHÍNH XÁC 3 nơi (migration/type/query); `revenue` numeric→string luôn qua `Number()`; mọi INSERT set `user_id` (thỏa RLS); logic tuần thói quen + lọc ngày lịch trình + stat card đều đúng, không lệch múi giờ (đã trace). Không có lỗi chặn.
+- Task #13 (QA): HOÀN THÀNH — không còn lỗi pending.

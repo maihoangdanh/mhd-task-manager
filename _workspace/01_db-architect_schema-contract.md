@@ -7,6 +7,7 @@ Nguồn chuẩn (source of truth) cho frontend-developer và qa-inspector. Front
 - Migrations (chạy theo thứ tự timestamp):
   1. `supabase/migrations/20260709120000_init_schema.sql` — khởi tạo 3 bảng + RLS.
   2. `supabase/migrations/20260709160000_add_recurrence_group_id.sql` — thêm cột `recurrence_group_id` vào `tasks` (tính năng task lặp lại).
+  3. `supabase/migrations/20260709170000_add_notes_goals_freelance.sql` — thêm 3 bảng `notes`, `goals`, `freelance_projects` (+ RLS) và 2 cột `completed`, `project_id` vào `schedule_events`.
 
 ## QUAN TRỌNG — cách áp dụng migration (người dùng tự chạy)
 
@@ -15,9 +16,10 @@ Môi trường agent này KHÔNG có network/CLI credentials tới Supabase, nê
 1. Vào Supabase Dashboard -> chọn project `wvudgvdrgoiocalthbsi`.
 2. Mở **SQL Editor**.
 3. Dán toàn bộ nội dung file `supabase/migrations/20260709120000_init_schema.sql` -> **Run** (nếu đã chạy trước đó thì bỏ qua).
-4. Dán toàn bộ nội dung file `supabase/migrations/20260709160000_add_recurrence_group_id.sql` -> **Run** (migration MỚI cho task lặp lại — CẦN chạy để cột `recurrence_group_id` tồn tại).
-5. Kiểm tra tab **Authentication -> Policies** thấy RLS đã bật (enabled) cho cả 3 bảng.
-6. Kiểm tra bảng `tasks` (Table Editor) đã có cột `recurrence_group_id`.
+4. Dán toàn bộ nội dung file `supabase/migrations/20260709160000_add_recurrence_group_id.sql` -> **Run** (migration cho task lặp lại — CẦN chạy để cột `recurrence_group_id` tồn tại).
+5. Dán toàn bộ nội dung file `supabase/migrations/20260709170000_add_notes_goals_freelance.sql` -> **Run** (migration MỚI NHẤT — tạo 3 bảng `notes`/`goals`/`freelance_projects` và thêm 2 cột `completed`/`project_id` vào `schedule_events`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
+6. Kiểm tra tab **Authentication -> Policies** thấy RLS đã bật (enabled) cho cả 6 bảng (`projects`, `tasks`, `schedule_events`, `notes`, `goals`, `freelance_projects`).
+7. Kiểm tra bảng `tasks` đã có cột `recurrence_group_id`, và bảng `schedule_events` đã có 2 cột `completed`, `project_id`.
 
 ## Quy ước đặt tên — điểm dễ gây lỗi ranh giới
 
@@ -96,7 +98,63 @@ Sự kiện lịch, liên kết tùy chọn tới một task.
 | title | text | không | - | Tiêu đề sự kiện |
 | start_time | timestamptz | không | - | Thời điểm bắt đầu |
 | end_time | timestamptz | không | - | Thời điểm kết thúc |
+| completed | boolean | không | `false` | Đánh dấu sự kiện đã hoàn thành. Thêm bởi migration `20260709170000`. |
+| project_id | uuid | có | null | FK -> `projects(id)`, ON DELETE SET NULL (xóa project thì event giữ lại, `project_id` thành null). Thêm bởi migration `20260709170000`. Có index `idx_schedule_events_project_id`. |
 | created_at | timestamptz | không | `now()` | Thời điểm tạo |
+
+RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) with check (auth.uid() = user_id)`. Không đổi khi thêm 2 cột mới.
+
+---
+
+## Bảng: notes
+
+Ghi chú nhanh của người dùng. Thêm bởi migration `20260709170000`.
+
+| Cột | Kiểu | Nullable | Default | Ghi chú |
+|-----|------|----------|---------|---------|
+| id | uuid | không | `gen_random_uuid()` | PK |
+| user_id | uuid | không | - | FK -> `auth.users(id)`, ON DELETE CASCADE |
+| content | text | không | - | Nội dung ghi chú |
+| color | text | có | null | Màu ghi chú (tùy UI diễn giải, vd hex hoặc tên màu). Không có ràng buộc CHECK. |
+| created_at | timestamptz | không | `now()` | Thời điểm tạo |
+
+RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) with check (auth.uid() = user_id)`.
+
+---
+
+## Bảng: goals
+
+Mục tiêu theo tuần/tháng, có phần trăm tiến độ. Thêm bởi migration `20260709170000`.
+
+| Cột | Kiểu | Nullable | Default | Ghi chú |
+|-----|------|----------|---------|---------|
+| id | uuid | không | `gen_random_uuid()` | PK |
+| user_id | uuid | không | - | FK -> `auth.users(id)`, ON DELETE CASCADE |
+| title | text | không | - | Tên mục tiêu |
+| period | text | không | - | CHECK enum: `week` / `month` |
+| progress_percent | int | không | `0` | CHECK: từ 0 đến 100 (`between 0 and 100`) |
+| target_date | date | có | null | Ngày mục tiêu (chỉ ngày) |
+| created_at | timestamptz | không | `now()` | Thời điểm tạo |
+| updated_at | timestamptz | không | `now()` | Cập nhật lần cuối (frontend tự set `now()` khi update; chưa có trigger tự động) |
+
+RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) with check (auth.uid() = user_id)`.
+
+---
+
+## Bảng: freelance_projects
+
+Dự án freelance kèm doanh thu và trạng thái. Thêm bởi migration `20260709170000`.
+
+| Cột | Kiểu | Nullable | Default | Ghi chú |
+|-----|------|----------|---------|---------|
+| id | uuid | không | `gen_random_uuid()` | PK |
+| user_id | uuid | không | - | FK -> `auth.users(id)`, ON DELETE CASCADE |
+| client_name | text | không | - | Tên khách hàng |
+| project_name | text | không | - | Tên dự án |
+| revenue | numeric | không | `0` | Doanh thu. Kiểu `numeric` (không giới hạn precision/scale) — frontend nhận về dạng **string** qua Supabase JS, cần `Number(row.revenue)` khi tính toán. |
+| status | text | không | `'in_progress'` | CHECK enum: `in_progress` / `almost_done` / `done` |
+| created_at | timestamptz | không | `now()` | Thời điểm tạo |
+| updated_at | timestamptz | không | `now()` | Cập nhật lần cuối (frontend tự set `now()` khi update; chưa có trigger tự động) |
 
 RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) with check (auth.uid() = user_id)`.
 
@@ -109,6 +167,10 @@ RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) 
 - `tasks.project_id` -> `projects.id` (SET NULL)
 - `schedule_events.user_id` -> `auth.users.id` (CASCADE)
 - `schedule_events.task_id` -> `tasks.id` (CASCADE)
+- `schedule_events.project_id` -> `projects.id` (SET NULL)
+- `notes.user_id` -> `auth.users.id` (CASCADE)
+- `goals.user_id` -> `auth.users.id` (CASCADE)
+- `freelance_projects.user_id` -> `auth.users.id` (CASCADE)
 
 ## Gợi ý query quan hệ cho frontend (Supabase JS)
 

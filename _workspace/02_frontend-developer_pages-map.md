@@ -23,7 +23,7 @@ Cả hai là `NEXT_PUBLIC_*` nên được nhúng vào bundle client — deploy-
 |-------|------|-----------|------|
 | `/` | `app/page.tsx` | Điều hướng: có session → `/dashboard`, chưa → `/login` | — |
 | `/login` | `app/login/page.tsx` | Đăng nhập / đăng ký bằng email + mật khẩu (Supabase Auth) | public |
-| `/dashboard` | `app/dashboard/page.tsx` | Tổng quan: đếm task theo status, task sắp đến hạn, sự kiện sắp tới | cần đăng nhập |
+| `/dashboard` | `app/dashboard/page.tsx` | Trang tổng quan (rebuild 2026-07-09, Task #12) — 8 khối: (1) header chào theo buổi + thứ/ngày tiếng Việt; (2) 3 stat card: task hôm nay x/y, freelance đang chạy, % tiến độ mục tiêu TB; (3) "Lịch trình hôm nay" dạng BẢNG (Giờ/Việc/Nguồn/Trạng thái) — checkbox tick `completed` optimistic; (4) "Công việc" nhóm theo project + tag priority/status; (5) "Freelance" list + modal thêm/sửa/xoá; (6) "Mục tiêu" progress bar + slider sửa % tức thì + thêm/xoá goal; (7) "Theo dõi thói quen" lưới T2→CN tuần hiện tại (nhóm `recurrence_group_id`); (8) "Ghi chú nhanh" sticky-note nền màu + thêm/xoá. Freelance/goal/note CRUD nằm INLINE trong trang (modal + form nhỏ), KHÔNG tạo route riêng | cần đăng nhập |
 | `/tasks` | `app/tasks/page.tsx` | Danh sách task, lọc theo status, toggle hoàn thành, xóa. Task thuộc chuỗi lặp có badge "🔁 Lặp"; khi xóa hỏi qua modal: "Xóa chỉ ngày này" hoặc "Xóa cả chuỗi (N task)" | cần đăng nhập |
 | `/tasks/new` | `app/tasks/new/page.tsx` | Form tạo task mới | cần đăng nhập |
 | `/tasks/[id]` | `app/tasks/[id]/page.tsx` | Form sửa task theo id | cần đăng nhập |
@@ -35,7 +35,7 @@ Cả hai là `NEXT_PUBLIC_*` nên được nhúng vào bundle client — deploy-
 | File | Vai trò |
 |------|---------|
 | `lib/supabase.ts` | Khởi tạo Supabase client (anon key, RLS bảo vệ) |
-| `types/database.ts` | Type khớp schema-contract: `Project`, `Task`, `TaskWithProject`, `ScheduleEvent`, `ScheduleEventWithTask` (snake_case) |
+| `types/database.ts` | Type khớp schema-contract: `Project`, `Task`, `TaskWithProject`, `ScheduleEvent` (+`completed`,`project_id`), `ScheduleEventWithTask`, `ScheduleEventWithProject`, `Note`, `Goal`/`GoalPeriod`, `FreelanceProject`/`FreelanceStatus` (snake_case). Lưu ý `FreelanceProject.revenue` kiểu `string` (numeric → string), phải `Number()` khi tính/hiển thị |
 | `components/AuthProvider.tsx` | Context session Supabase Auth (`useAuth`), bọc toàn app ở `app/layout.tsx` |
 | `components/RequireAuth.tsx` | Route guard: chưa đăng nhập → redirect `/login` |
 | `components/Nav.tsx` | Thanh điều hướng (sticky, logo gradient) + nút đăng xuất (ẩn ở `/login`); có link `/reports` |
@@ -55,6 +55,13 @@ Cả hai là `NEXT_PUBLIC_*` nên được nhúng vào bundle client — deploy-
 - `due_date` kiểu `date` → gửi/nhận chuỗi `YYYY-MM-DD` (input type=date).
 - `start_time`/`end_time` kiểu `timestamptz` → gửi ISO string (`new Date(datetimeLocal).toISOString()`).
 - `/reports`: `.from('tasks').select('id, status, due_date, updated_at, project_id, projects(name)')` — thống kê tính hoàn toàn ở client từ dữ liệu `tasks` (KHÔNG đổi schema). Quá hạn = `status != 'done' && due_date < today`. Xu hướng hoàn thành = đếm task `status = 'done'` theo tuần dựa vào `updated_at`. Breakdown project gộp `project_id = null` thành "Chưa phân nhóm".
+- `/dashboard` (rebuild Task #12) — 5 query song song:
+  - tasks: `.select('id, title, status, priority, due_date, project_id, recurrence_group_id, projects(name)')` — dùng cho stat "task hôm nay" (`due_date === today`), khối "Công việc" (`status != 'done'`, nhóm theo `project_id`), khối "Thói quen" (`recurrence_group_id != null` + `due_date` trong tuần T2→CN, tính ngày ở client bằng giờ ĐỊA PHƯƠNG).
+  - schedule_events: `.select('id, title, start_time, end_time, completed, project_id, projects(name)').gte('start_time', đầu ngày).lte('start_time', cuối ngày)` — "Nguồn" = `projects.name` hoặc "Cá nhân" nếu null. Toggle `completed`: `.update({ completed }).eq('id', id)` (bảng KHÔNG có `updated_at` → không set).
+  - freelance_projects: `.select('*')`. Hiển thị `Number(revenue).toLocaleString('vi-VN')+'đ'`. INSERT set `user_id`; UPDATE gửi kèm `updated_at`.
+  - goals: `.select('*')`. Slider sửa `progress_percent` → `.update({ progress_percent, updated_at })`. Stat "% mục tiêu TB" = TB `progress_percent` của goals có `progress_percent < 100` (định nghĩa "active").
+  - notes: `.select('*')`. INSERT set `user_id` + `color` (key màu: amber/indigo/emerald/rose/sky, KHÔNG ràng buộc CHECK ở DB). Chỉ thêm/xoá (không sửa).
+  - Mọi INSERT (goals/notes/freelance) đều set `user_id: user.id` để thỏa RLS `with check`.
 
 ## Ghi chú phụ thuộc
 
@@ -64,7 +71,8 @@ Cả hai là `NEXT_PUBLIC_*` nên được nhúng vào bundle client — deploy-
 ## Trạng thái verify
 
 - `npx tsc --noEmit`: PASS (không lỗi type, không `any` né lỗi).
-- `npm run build`: PASS — 8 route build thành công (thêm `/reports`).
+- `npm run build`: PASS — 8 route build thành công (thêm `/reports`). Rebuild `/dashboard` (Task #12): `npx tsc --noEmit` PASS + `npm run build` PASS, không `any` né lỗi.
 - Logic tính ngày lặp (`computeRecurringDates`) test độc lập: khoảng 1/8→31/8, loại Chủ nhật + 2 ngày cụ thể → 24 task đúng (31 − 5 CN − 2), không sót Chủ nhật/ngày loại trừ.
 - Lưu ý verify: UI form lặp + modal xóa chuỗi nằm sau `RequireAuth` (cần đăng nhập Supabase) nên không drive end-to-end trong môi trường agent; đã xác thực qua build + tsc + unit logic. QA nên kiểm thực tế sau khi migration `20260709160000` đã chạy.
 - Render kiểm tra thực tế qua dev server: `/login` hiển thị đúng design mới; các chart (`DonutChart`/`VBars`/`HBars`) render đúng màu (`#2a78d6` xác thực trực tiếp) + nhãn số. Console không lỗi.
+- `/dashboard` rebuild (Task #12): dev server điều hướng `/dashboard` → redirect `/login` đúng (RequireAuth), console KHÔNG lỗi. Không drive được nội dung dashboard end-to-end vì cần đăng nhập Supabase (không có credential trong môi trường agent) — cùng giới hạn đã biết. QA cần đăng nhập + đảm bảo migration `20260709170000` đã chạy để kiểm 8 khối thực tế (đặc biệt: `completed`/`project_id` trên `schedule_events`, 3 bảng `notes`/`goals`/`freelance_projects`, và `revenue` numeric→string).
