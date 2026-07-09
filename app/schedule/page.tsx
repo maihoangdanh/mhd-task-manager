@@ -4,10 +4,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
 import RequireAuth from '@/components/RequireAuth'
+import Loading from '@/components/Loading'
 import type { ScheduleEventWithTask, Task } from '@/types/database'
 
-const inputClass =
-  'rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/20 dark:bg-transparent'
+const inputClass = 'input'
 
 function ScheduleInner() {
   const { user } = useAuth()
@@ -89,14 +89,16 @@ function ScheduleInner() {
   }, {})
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="text-xl font-semibold">Lịch trình</h1>
+    <div className="flex flex-col gap-7">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-indigo-950">Lịch trình</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Lên lịch sự kiện và liên kết với công việc của bạn.
+        </p>
+      </div>
 
-      <form
-        onSubmit={handleCreate}
-        className="flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/15"
-      >
-        <h2 className="font-medium">Thêm sự kiện</h2>
+      <form onSubmit={handleCreate} className="card flex flex-col gap-3 p-5">
+        <h2 className="font-semibold text-indigo-950">Thêm sự kiện</h2>
         <input
           required
           value={title}
@@ -141,51 +143,62 @@ function ScheduleInner() {
             ))}
           </select>
         </label>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={saving}
-          className="self-start rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
-        >
-          {saving ? 'Đang lưu…' : 'Thêm sự kiện'}
+        {error && (
+          <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>
+        )}
+        <button type="submit" disabled={saving} className="btn btn-primary self-start">
+          {saving ? 'Đang lưu…' : '+ Thêm sự kiện'}
         </button>
       </form>
 
       <section>
-        <h2 className="mb-2 font-medium">Danh sách sự kiện</h2>
+        <h2 className="mb-3 font-semibold text-indigo-950">Danh sách sự kiện</h2>
         {loading ? (
-          <p className="text-sm text-zinc-500">Đang tải…</p>
+          <Loading />
         ) : events.length === 0 ? (
-          <p className="text-sm text-zinc-500">Chưa có sự kiện nào.</p>
+          <div className="card p-10 text-center text-sm text-slate-400">
+            Chưa có sự kiện nào.
+          </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-5">
             {Object.entries(grouped).map(([day, dayEvents]) => (
               <div key={day}>
-                <div className="mb-1 text-sm font-medium text-zinc-500">{day}</div>
-                <ul className="flex flex-col gap-2">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="pill bg-indigo-100 text-indigo-700">{day}</span>
+                  <span className="text-xs text-slate-400">
+                    {dayEvents.length} sự kiện
+                  </span>
+                </div>
+                <ul className="flex flex-col gap-2.5">
                   {dayEvents.map((ev) => (
                     <li
                       key={ev.id}
-                      className="flex items-center justify-between rounded-lg border border-black/10 px-4 py-3 dark:border-white/15"
+                      className="card flex items-center justify-between px-4 py-3.5"
                     >
-                      <div>
-                        <div className="font-medium">{ev.title}</div>
-                        <div className="text-xs text-zinc-500">
-                          {new Date(ev.start_time).toLocaleTimeString('vi-VN', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}{' '}
-                          –{' '}
-                          {new Date(ev.end_time).toLocaleTimeString('vi-VN', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                          {ev.tasks?.title && ` · Task: ${ev.tasks.title}`}
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="h-9 w-1.5 shrink-0 rounded-full bg-gradient-to-b from-indigo-400 to-violet-500" />
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold text-slate-800">
+                            {ev.title}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            🕑{' '}
+                            {new Date(ev.start_time).toLocaleTimeString('vi-VN', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}{' '}
+                            –{' '}
+                            {new Date(ev.end_time).toLocaleTimeString('vi-VN', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                            {ev.tasks?.title && ` · 📋 ${ev.tasks.title}`}
+                          </div>
                         </div>
                       </div>
                       <button
                         onClick={() => handleDelete(ev.id)}
-                        className="text-sm text-red-600 hover:underline"
+                        className="shrink-0 rounded-lg px-2.5 py-1 text-sm font-medium text-rose-600 hover:bg-rose-50"
                       >
                         Xóa
                       </button>

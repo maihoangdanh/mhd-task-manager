@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/components/AuthProvider'
+import Loading from '@/components/Loading'
 
 // Trang gốc: điều hướng theo trạng thái đăng nhập.
 export default function Home() {
@@ -14,5 +15,5 @@ export default function Home() {
     router.replace(session ? '/dashboard' : '/login')
   }, [session, loading, router])
 
-  return <p className="text-sm text-zinc-500">Đang tải…</p>
+  return <Loading />
 }

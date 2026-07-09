@@ -5,6 +5,8 @@ Bản đồ route ↔ file ↔ chức năng cho qa-inspector đối chiếu rout
 Stack: Next.js 16 (App Router, Turbopack) + TypeScript + Tailwind v4 + `@supabase/supabase-js`.
 Dữ liệu gọi trực tiếp từ Client Component qua Supabase JS client (`lib/supabase.ts`), bảo mật bằng RLS.
 
+**Giao diện (redesign 2026-07-09):** Chế độ SÁNG, phong cách hiện đại/trẻ trung. Màu chủ đạo indigo/violet + nhấn amber, nền xám nhạt có wash gradient nhẹ, card bo góc `rounded-2xl` + shadow mềm. Design tokens & component class (`.card`, `.btn`, `.btn-primary`, `.input`, `.pill`) định nghĩa trong `app/globals.css`. Đã bỏ toàn bộ dark mode.
+
 ## Biến môi trường (bắt buộc cho build & runtime)
 
 | Biến | Giá trị |
@@ -26,6 +28,7 @@ Cả hai là `NEXT_PUBLIC_*` nên được nhúng vào bundle client — deploy-
 | `/tasks/new` | `app/tasks/new/page.tsx` | Form tạo task mới | cần đăng nhập |
 | `/tasks/[id]` | `app/tasks/[id]/page.tsx` | Form sửa task theo id | cần đăng nhập |
 | `/schedule` | `app/schedule/page.tsx` | View lịch (agenda nhóm theo ngày), thêm/xóa sự kiện, liên kết task | cần đăng nhập |
+| `/reports` | `app/reports/page.tsx` | Thống kê/báo cáo: tỷ lệ hoàn thành %, task quá hạn, phân bố theo trạng thái (donut), breakdown theo project (thanh ngang), xu hướng hoàn thành 8 tuần (cột dọc) | cần đăng nhập |
 
 ## Component & lib dùng chung
 
@@ -35,8 +38,10 @@ Cả hai là `NEXT_PUBLIC_*` nên được nhúng vào bundle client — deploy-
 | `types/database.ts` | Type khớp schema-contract: `Project`, `Task`, `TaskWithProject`, `ScheduleEvent`, `ScheduleEventWithTask` (snake_case) |
 | `components/AuthProvider.tsx` | Context session Supabase Auth (`useAuth`), bọc toàn app ở `app/layout.tsx` |
 | `components/RequireAuth.tsx` | Route guard: chưa đăng nhập → redirect `/login` |
-| `components/Nav.tsx` | Thanh điều hướng + nút đăng xuất (ẩn ở `/login`) |
+| `components/Nav.tsx` | Thanh điều hướng (sticky, logo gradient) + nút đăng xuất (ẩn ở `/login`); có link `/reports` |
 | `components/TaskForm.tsx` | Form dùng chung cho tạo/sửa task; hỗ trợ chọn/tạo nhanh project |
+| `components/Loading.tsx` | Spinner tải dùng chung |
+| `components/Charts.tsx` | Biểu đồ tự vẽ (SVG/CSS, không thêm dependency): `DonutChart`, `VBars`, `HBars`. Màu theo palette đã validate bằng skill `dataviz`; mọi mark kèm nhãn số trực tiếp (relief rule) |
 
 ## Ánh xạ query ↔ schema-contract (điểm QA cần đối chiếu)
 
@@ -47,6 +52,7 @@ Cả hai là `NEXT_PUBLIC_*` nên được nhúng vào bundle client — deploy-
 - SELECT không lọc `.eq('user_id', ...)` — RLS `to authenticated` tự lọc theo `auth.uid()`.
 - `due_date` kiểu `date` → gửi/nhận chuỗi `YYYY-MM-DD` (input type=date).
 - `start_time`/`end_time` kiểu `timestamptz` → gửi ISO string (`new Date(datetimeLocal).toISOString()`).
+- `/reports`: `.from('tasks').select('id, status, due_date, updated_at, project_id, projects(name)')` — thống kê tính hoàn toàn ở client từ dữ liệu `tasks` (KHÔNG đổi schema). Quá hạn = `status != 'done' && due_date < today`. Xu hướng hoàn thành = đếm task `status = 'done'` theo tuần dựa vào `updated_at`. Breakdown project gộp `project_id = null` thành "Chưa phân nhóm".
 
 ## Ghi chú phụ thuộc
 
@@ -56,4 +62,5 @@ Cả hai là `NEXT_PUBLIC_*` nên được nhúng vào bundle client — deploy-
 ## Trạng thái verify
 
 - `npx tsc --noEmit`: PASS (không lỗi type, không `any` né lỗi).
-- `npm run build`: PASS — 7 route build thành công.
+- `npm run build`: PASS — 8 route build thành công (thêm `/reports`).
+- Render kiểm tra thực tế qua dev server: `/login` hiển thị đúng design mới; các chart (`DonutChart`/`VBars`/`HBars`) render đúng màu (`#2a78d6` xác thực trực tiếp) + nhãn số. Console không lỗi.

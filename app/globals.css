@@ -1,8 +1,28 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Task Manager — Design system (light, modern, energetic)
+   Chủ đạo: indigo/violet · Nhấn: amber · Nền: xám nhạt + wash gradient nhẹ.
+   Chỉ chế độ sáng (theo yêu cầu redesign).
+--------------------------------------------------------------------------- */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f7f8fc;
+  --foreground: #1e2338;
+
+  /* Brand */
+  --brand: #4f46e5;        /* indigo-600 */
+  --brand-strong: #4338ca; /* indigo-700 */
+  --brand-soft: #eef0fe;   /* indigo wash */
+  --accent: #f59e0b;       /* amber-500 */
+
+  /* Surfaces & ink */
+  --surface: #ffffff;
+  --ink: #1e2338;
+  --ink-muted: #6b7280;
+  --line: rgba(30, 35, 56, 0.08);
+  --shadow: 0 1px 2px rgba(30, 35, 56, 0.04), 0 8px 24px -12px rgba(30, 35, 56, 0.18);
+  --shadow-lg: 0 4px 12px rgba(30, 35, 56, 0.06), 0 24px 48px -20px rgba(79, 70, 229, 0.28);
 }
 
 @theme inline {
@@ -12,15 +32,88 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  color: var(--ink);
+  background:
+    radial-gradient(1100px 540px at 100% -8%, rgba(99, 102, 241, 0.12), transparent 60%),
+    radial-gradient(900px 460px at -10% 4%, rgba(245, 158, 11, 0.09), transparent 55%),
+    var(--background);
+  background-attachment: fixed;
+  font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* --- Reusable component classes ------------------------------------------ */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  box-shadow: var(--shadow);
+}
+
+.input {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--line);
+  background: #fbfbfe;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.875rem;
+  color: var(--ink);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.input:focus {
+  outline: none;
+  background: #fff;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+.input::placeholder { color: #9aa1ad; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 0.75rem;
+  padding: 0.55rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.15s, background 0.15s, opacity 0.15s;
+  border: 1px solid transparent;
+}
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn:not(:disabled):active { transform: translateY(1px); }
+
+.btn-primary {
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 55%, #7c3aed 100%);
+  box-shadow: 0 6px 16px -6px rgba(79, 70, 229, 0.6);
+}
+.btn-primary:not(:disabled):hover { box-shadow: 0 10px 22px -6px rgba(79, 70, 229, 0.65); }
+
+.btn-ghost {
+  color: var(--ink);
+  background: #fff;
+  border-color: var(--line);
+}
+.btn-ghost:not(:disabled):hover { background: var(--brand-soft); border-color: rgba(79,70,229,0.3); }
+
+.btn-danger {
+  color: #e11d48;
+  background: #fff;
+  border-color: rgba(225, 29, 72, 0.25);
+}
+.btn-danger:not(:disabled):hover { background: #fff1f3; }
+
+/* Pills / badges */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 9999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
 }

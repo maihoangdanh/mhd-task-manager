@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/components/AuthProvider'
+import Loading from '@/components/Loading'
 
 // Bọc nội dung trang cần đăng nhập. Chưa có session -> chuyển sang /login.
 export default function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -16,7 +17,7 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
   }, [loading, session, router])
 
   if (loading) {
-    return <p className="text-sm text-zinc-500">Đang tải…</p>
+    return <Loading />
   }
 
   if (!session) {

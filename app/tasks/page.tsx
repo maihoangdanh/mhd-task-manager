@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import RequireAuth from '@/components/RequireAuth'
+import Loading from '@/components/Loading'
 import type { TaskStatus, TaskWithProject } from '@/types/database'
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -13,9 +14,9 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 }
 
 const STATUS_STYLE: Record<TaskStatus, string> = {
-  todo: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200',
-  in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200',
-  done: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200',
+  todo: 'bg-indigo-100 text-indigo-700',
+  in_progress: 'bg-amber-100 text-amber-700',
+  done: 'bg-emerald-100 text-emerald-700',
 }
 
 const PRIORITY_LABEL: Record<string, string> = {
@@ -25,9 +26,9 @@ const PRIORITY_LABEL: Record<string, string> = {
 }
 
 const PRIORITY_STYLE: Record<string, string> = {
-  low: 'text-zinc-500',
-  medium: 'text-amber-600',
-  high: 'text-red-600 font-semibold',
+  low: 'bg-slate-100 text-slate-500',
+  medium: 'bg-amber-100 text-amber-700',
+  high: 'bg-rose-100 text-rose-700',
 }
 
 function TasksInner() {
@@ -77,29 +78,34 @@ function TasksInner() {
     }
   }
 
+  const counts = {
+    done: tasks.filter((t) => t.status === 'done').length,
+  }
   const visible = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter)
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Công việc</h1>
-        <Link
-          href="/tasks/new"
-          className="rounded-md bg-black px-3 py-1.5 text-sm font-medium text-white dark:bg-white dark:text-black"
-        >
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-indigo-950">Công việc</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {tasks.length} công việc · {counts.done} đã hoàn thành
+          </p>
+        </div>
+        <Link href="/tasks/new" className="btn btn-primary">
           + Tạo task
         </Link>
       </div>
 
-      <div className="mb-4 flex gap-2 text-sm">
+      <div className="mb-5 flex flex-wrap gap-2 text-sm">
         {(['all', 'todo', 'in_progress', 'done'] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`rounded-md px-3 py-1 ${
+            className={`rounded-lg px-3.5 py-1.5 font-medium transition-colors ${
               filter === f
-                ? 'bg-black text-white dark:bg-white dark:text-black'
-                : 'border border-black/15 dark:border-white/20'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                : 'border border-[var(--line)] bg-white text-slate-600 hover:bg-indigo-50'
             }`}
           >
             {f === 'all' ? 'Tất cả' : STATUS_LABEL[f]}
@@ -107,58 +113,63 @@ function TasksInner() {
         ))}
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>
+      )}
       {loading ? (
-        <p className="text-sm text-zinc-500">Đang tải…</p>
+        <Loading />
       ) : visible.length === 0 ? (
-        <p className="text-sm text-zinc-500">Chưa có công việc nào.</p>
+        <div className="card p-10 text-center">
+          <p className="text-sm text-slate-400">Chưa có công việc nào.</p>
+          <Link href="/tasks/new" className="btn btn-primary mt-4">
+            + Tạo task đầu tiên
+          </Link>
+        </div>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-3">
           {visible.map((task) => (
             <li
               key={task.id}
-              className="flex items-center gap-3 rounded-lg border border-black/10 px-4 py-3 dark:border-white/15"
+              className="card flex items-center gap-3 px-4 py-3.5 transition-shadow hover:shadow-lg"
             >
               <input
                 type="checkbox"
                 checked={task.status === 'done'}
                 onChange={() => toggleDone(task)}
-                className="h-4 w-4"
+                className="h-5 w-5 shrink-0 accent-indigo-600"
                 aria-label="Đánh dấu hoàn thành"
               />
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Link
                     href={`/tasks/${task.id}`}
-                    className={`truncate font-medium hover:underline ${
-                      task.status === 'done' ? 'line-through text-zinc-400' : ''
+                    className={`truncate font-semibold text-slate-800 hover:text-indigo-700 ${
+                      task.status === 'done' ? 'text-slate-400 line-through' : ''
                     }`}
                   >
                     {task.title}
                   </Link>
-                  <span
-                    className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${STATUS_STYLE[task.status]}`}
-                  >
+                  <span className={`pill ${STATUS_STYLE[task.status]}`}>
                     {STATUS_LABEL[task.status]}
                   </span>
-                </div>
-                <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-zinc-500">
-                  <span className={PRIORITY_STYLE[task.priority]}>
-                    Ưu tiên: {PRIORITY_LABEL[task.priority]}
+                  <span className={`pill ${PRIORITY_STYLE[task.priority]}`}>
+                    {PRIORITY_LABEL[task.priority]}
                   </span>
-                  {task.due_date && <span>Hạn: {task.due_date}</span>}
-                  {task.projects?.name && <span>Nhóm: {task.projects.name}</span>}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-slate-400">
+                  {task.due_date && <span>📅 Hạn: {task.due_date}</span>}
+                  {task.projects?.name && <span>📁 {task.projects.name}</span>}
                 </div>
               </div>
               <Link
                 href={`/tasks/${task.id}`}
-                className="shrink-0 text-sm text-zinc-500 hover:underline"
+                className="shrink-0 rounded-lg px-2.5 py-1 text-sm font-medium text-indigo-600 hover:bg-indigo-50"
               >
                 Sửa
               </Link>
               <button
                 onClick={() => handleDelete(task.id)}
-                className="shrink-0 text-sm text-red-600 hover:underline"
+                className="shrink-0 rounded-lg px-2.5 py-1 text-sm font-medium text-rose-600 hover:bg-rose-50"
               >
                 Xóa
               </button>

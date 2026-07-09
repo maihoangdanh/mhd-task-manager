@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import RequireAuth from '@/components/RequireAuth'
 import TaskForm from '@/components/TaskForm'
+import Loading from '@/components/Loading'
 import type { Task } from '@/types/database'
 
 function EditTaskInner() {
@@ -32,19 +33,22 @@ function EditTaskInner() {
   return (
     <div className="max-w-lg">
       <div className="mb-4">
-        <Link href="/tasks" className="text-sm text-zinc-500 hover:underline">
+        <Link
+          href="/tasks"
+          className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+        >
           ← Quay lại danh sách
         </Link>
       </div>
-      <h1 className="mb-4 text-xl font-semibold">Sửa task</h1>
+      <h1 className="mb-5 text-2xl font-bold tracking-tight text-indigo-950">Sửa task</h1>
       {loading ? (
-        <p className="text-sm text-zinc-500">Đang tải…</p>
+        <Loading />
       ) : error ? (
-        <p className="text-sm text-red-600">{error}</p>
+        <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>
       ) : task ? (
         <TaskForm task={task} />
       ) : (
-        <p className="text-sm text-zinc-500">Không tìm thấy task.</p>
+        <p className="text-sm text-slate-400">Không tìm thấy task.</p>
       )}
     </div>
   )

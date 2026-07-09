@@ -97,3 +97,43 @@ Nguồn: toàn bộ `app/**`, `components/**` ↔ `_workspace/01_db-architect_sc
 - **Cross-boundary DB ↔ Frontend: PASS toàn bộ.** RLS đúng, naming/type/enum/FK-join/routing đều khớp. Không có lỗi chặn. Chỉ 1 advisory type-precision không ảnh hưởng runtime.
 - Điều kiện chạy thật: (1) người dùng chạy migration `20260709120000_init_schema.sql` trên Supabase SQL Editor; (2) deploy-engineer khai báo `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` ở AWS Amplify.
 - Task #3 (QA): HOÀN THÀNH — không còn lỗi pending.
+
+---
+
+## Kết quả QA #4 — 2026-07-09 — Redesign UI (light mode) + trang mới `/reports`
+
+Nguồn: `app/reports/page.tsx`, `components/Charts.tsx`, `components/Nav.tsx` + re-check `app/{login,dashboard,tasks,schedule}/page.tsx` ↔ schema-contract + pages-map (đã cập nhật).
+Phương pháp: đọc đồng thời cả hai bên; suy luận lại logic thống kê (không tin đọc 1 lần).
+
+### Pass — trang `/reports` (điểm chính lần này)
+- **Tên cột trong query khớp CHÍNH XÁC snake_case**: `.from('tasks').select('id, status, due_date, updated_at, project_id, projects(name)')` (reports:44) — mọi cột tồn tại trong bảng `tasks`, embed FK `projects(name)` khớp quan hệ `project_id→projects`.
+- **Type an toàn, KHÔNG `any`**: `ReportTask = Pick<Task, 'id'|'status'|'due_date'|'updated_at'|'project_id'> & { projects: {name:string}|null }` (reports:11-14) — dùng `Pick` HẸP đúng bằng tập cột select (khắc phục đúng advisory type-precision ở QA #3: type khớp shape query, không rộng hơn). Truy cập field đều snake_case (`t.due_date`, `t.project_id`, `t.updated_at`, `t.projects?.name`).
+- **Logic tỷ lệ hoàn thành đúng**: `completionRate = round(counts.done / total * 100)`, guard `total>0` tránh chia 0 (reports:59).
+- **Logic quá hạn đúng**: `t.status !== 'done' && t.due_date && t.due_date < today` với `today = new Date().toISOString().slice(0,10)` (reports:61-64). So sánh chuỗi `YYYY-MM-DD` lexicographic hợp lệ; task đến hạn hôm nay KHÔNG tính quá hạn (dùng `<` chặt). Khớp định nghĩa pages-map.
+- **Logic xu hướng 8 tuần đúng**: `mondayOf` chuẩn hóa về Thứ Hai (local midnight, công thức `(getDay()+6)%7`). Mảng 8 tuần i=0..7 = từ 7 tuần trước đến tuần hiện tại (đủ 8 mốc Thứ Hai). Bucket task done theo `mondayOf(updated_at).getTime() === week.start` — cả hai cùng anchor local-midnight-Monday nên khớp chính xác (VN không DST). Chỉ đếm `status==='done'` (reports:77-82). Đúng.
+- **Breakdown theo project đúng**: gộp theo `t.projects?.name ?? 'Chưa phân nhóm'`, đếm TỔNG task/nhóm, sort giảm dần (reports:84-92). Tile "Số nhóm" loại trừ nhóm "Chưa phân nhóm" (reports:109). Khớp pages-map.
+- **Props chart khớp chữ ký**: `DonutChart(data:Slice[], centerLabel, centerSub)`, `HBars(data:{label,value}[], color)`, `VBars(data:{label,value}[], color, unit)` — reports truyền đúng kiểu; `stats.weeks` có thừa field `start` nhưng structural-compatible (không lỗi). `Charts.tsx` không dùng `any`, không chạm Supabase (thuần trình bày).
+
+### Pass — routing
+- **Nav `/reports` trỏ đúng route thực tế**: `links` trong Nav.tsx:11 có `{href:'/reports'}` ↔ file `app/reports/page.tsx` tồn tại. Các link còn lại `/dashboard`,`/tasks`,`/schedule` đều có page. Logo `href="/dashboard"` hợp lệ. Active-state `pathname.startsWith(l.href+'/')` đúng cho sub-route.
+
+### Pass — các trang redesign khác (xác nhận CHỈ đổi UI, KHÔNG đổi logic query)
+- `dashboard`: query `tasks.select('*')` + `schedule_events.select('id,title,start_time,end_time,task_id,tasks(title)').gte('start_time', todayIso).order().limit(5)` — snake_case đúng, embed `tasks(title)` đúng FK. Logic `dueSoon` (chưa done & due_date>=today) và `counts` giữ nguyên.
+- `tasks`: query list + `toggleDone` UPDATE gửi kèm `updated_at: new Date().toISOString()` (tasks:73) — đúng contract (DB không có trigger). Delete theo id. Không đổi logic.
+- `schedule`: INSERT event set `user_id: user.id` (schedule:59) thỏa RLS `with check`; `task_id: taskId || null`; `start_time/end_time` gửi ISO (`new Date(...).toISOString()`) đúng timestamptz. Validate end>start. Không đổi logic.
+- `login`: dùng Supabase Auth (`signInWithPassword`/`signUp`), không chạm bảng dữ liệu — không có ranh giới cột để lệch.
+
+### Verify
+- `npx tsc --noEmit`: **PASS** (exit 0) — không lỗi type, không `any` né lỗi.
+
+### Fail
+- (không có lỗi ranh giới — không cần chuyển yêu cầu sửa cho frontend-developer)
+
+### Quan sát nhỏ (advisory — KHÔNG chặn)
+- `reports:47` còn dùng `data as unknown as ReportTask[]` (double-cast). Chấp nhận được vì Supabase suy luận kiểu embed relation có thể là mảng; type đích `ReportTask` đã HẸP đúng cột select nên rủi ro thấp hơn nhiều so với cast về type đầy đủ. Runtime embed to-one (`project_id→projects`) trả object|null — khớp `{name:string}|null`.
+- Breakdown project gộp theo **tên** (không theo `project_id`): 2 project trùng tên sẽ bị gộp. Edge case hiếm, không phải lỗi runtime hiện tại.
+- `today` tính theo UTC (`toISOString`) — lệch múi giờ có thể khiến ranh giới "quá hạn/đến hạn hôm nay" lệch 1 ngày ở rìa nửa đêm. Không chặn; nhất quán với cách dashboard tính `today`.
+
+### Kết luận
+- **Cross-boundary DB ↔ Frontend cho `/reports` + toàn bộ trang redesign: PASS.** Naming/type/enum/FK-join/routing/RLS-insert/updated_at đều khớp. Redesign chỉ đổi class/JSX — logic query bảo toàn. Không có lỗi chặn.
+- Task #7 (QA): HOÀN THÀNH — không còn lỗi pending.

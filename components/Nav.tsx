@@ -8,6 +8,7 @@ const links = [
   { href: '/dashboard', label: 'Tổng quan' },
   { href: '/tasks', label: 'Công việc' },
   { href: '/schedule', label: 'Lịch trình' },
+  { href: '/reports', label: 'Thống kê' },
 ]
 
 export default function Nav() {
@@ -19,20 +20,27 @@ export default function Nav() {
   if (pathname === '/login') return null
 
   return (
-    <header className="border-b border-black/10 dark:border-white/15">
-      <nav className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-1">
-          <span className="mr-3 font-semibold">Task Manager</span>
+    <header className="sticky top-0 z-20 border-b border-[var(--line)] bg-white/80 backdrop-blur-md">
+      <nav className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+        <div className="flex items-center gap-1.5">
+          <Link href="/dashboard" className="mr-2 flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-600 text-sm font-bold text-white shadow-sm">
+              T
+            </span>
+            <span className="hidden font-bold tracking-tight text-indigo-950 sm:inline">
+              Task Manager
+            </span>
+          </Link>
           {links.map((l) => {
             const active = pathname === l.href || pathname.startsWith(l.href + '/')
             return (
               <Link
                 key={l.href}
                 href={l.href}
-                className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                   active
-                    ? 'bg-black text-white dark:bg-white dark:text-black'
-                    : 'hover:bg-black/5 dark:hover:bg-white/10'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                    : 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'
                 }`}
               >
                 {l.label}
@@ -42,13 +50,15 @@ export default function Nav() {
         </div>
         {user && (
           <div className="flex items-center gap-3 text-sm">
-            <span className="hidden text-zinc-500 sm:inline">{user.email}</span>
+            <span className="hidden max-w-[16ch] truncate text-slate-400 md:inline">
+              {user.email}
+            </span>
             <button
               onClick={async () => {
                 await signOut()
                 router.push('/login')
               }}
-              className="rounded-md border border-black/15 px-3 py-1.5 hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+              className="btn btn-ghost"
             >
               Đăng xuất
             </button>
