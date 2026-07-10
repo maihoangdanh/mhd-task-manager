@@ -17,10 +17,16 @@ function ScheduleInner() {
   const [error, setError] = useState<string | null>(null)
 
   const [title, setTitle] = useState('')
-  const [start, setStart] = useState('')
-  const [end, setEnd] = useState('')
+  // Tách riêng ngày + giờ (thay vì datetime-local) vì popup giờ của Chrome hiện AM/PM theo
+  // ngôn ngữ trình duyệt (không theo lang trang web) — ô giờ dạng chữ HH:MM tự kiểm soát 24h.
+  const [startDate, setStartDate] = useState('')
+  const [startTime, setStartTime] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [endTime, setEndTime] = useState('')
   const [taskId, setTaskId] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const TIME_PATTERN = '^([01][0-9]|2[0-3]):[0-5][0-9]$'
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -49,6 +55,8 @@ function ScheduleInner() {
     e.preventDefault()
     if (!user) return
     setError(null)
+    const start = `${startDate}T${startTime}`
+    const end = `${endDate}T${endTime}`
     if (new Date(end) <= new Date(start)) {
       setError('Thời điểm kết thúc phải sau thời điểm bắt đầu.')
       return
@@ -64,8 +72,10 @@ function ScheduleInner() {
       })
       if (error) throw error
       setTitle('')
-      setStart('')
-      setEnd('')
+      setStartDate('')
+      setStartTime('')
+      setEndDate('')
+      setEndTime('')
       setTaskId('')
       await load()
     } catch (err) {
@@ -113,23 +123,49 @@ function ScheduleInner() {
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-sm">
             <span>Bắt đầu</span>
-            <input
-              type="datetime-local"
-              required
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-              className={inputClass}
-            />
+            <div className="flex gap-2">
+              <input
+                type="date"
+                required
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className={`${inputClass} flex-1`}
+              />
+              <input
+                type="text"
+                required
+                inputMode="numeric"
+                placeholder="HH:MM"
+                pattern={TIME_PATTERN}
+                title="Giờ theo định dạng 24h, ví dụ 14:30"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className={`${inputClass} w-20`}
+              />
+            </div>
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span>Kết thúc</span>
-            <input
-              type="datetime-local"
-              required
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              className={inputClass}
-            />
+            <div className="flex gap-2">
+              <input
+                type="date"
+                required
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className={`${inputClass} flex-1`}
+              />
+              <input
+                type="text"
+                required
+                inputMode="numeric"
+                placeholder="HH:MM"
+                pattern={TIME_PATTERN}
+                title="Giờ theo định dạng 24h, ví dụ 14:30"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className={`${inputClass} w-20`}
+              />
+            </div>
           </label>
         </div>
         <label className="flex flex-col gap-1 text-sm">
