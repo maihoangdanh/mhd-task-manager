@@ -115,6 +115,8 @@ function DashboardInner() {
 
   // Modal freelance (thêm/sửa). null = đóng.
   const [freelanceModal, setFreelanceModal] = useState<FreelanceProject | 'new' | null>(null)
+  // Form thêm mục tiêu ẩn mặc định, chỉ hiện khi bấm nút "+" ở header.
+  const [showGoalForm, setShowGoalForm] = useState(false)
 
   const now = new Date()
   const todayStart = new Date(now)
@@ -564,7 +566,17 @@ function DashboardInner() {
 
       {/* 6. Mục tiêu tuần/tháng ----------------------------------------- */}
       <section className="card p-5">
-        <h2 className="mb-3 text-base font-semibold text-indigo-950">Mục tiêu tuần/tháng</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-indigo-950">Mục tiêu tuần/tháng</h2>
+          <button
+            type="button"
+            onClick={() => setShowGoalForm((v) => !v)}
+            className="btn btn-ghost !px-2.5 !py-1 text-sm"
+            aria-expanded={showGoalForm}
+          >
+            {showGoalForm ? '✕ Đóng' : '+ Thêm mục tiêu'}
+          </button>
+        </div>
         <div className="flex flex-col gap-4">
           {goals.map((g) => (
             <div key={g.id}>
@@ -603,7 +615,9 @@ function DashboardInner() {
               </div>
             </div>
           ))}
-          <GoalAddForm onAdd={addGoal} />
+          {showGoalForm && (
+            <GoalAddForm onAdd={addGoal} onDone={() => setShowGoalForm(false)} />
+          )}
         </div>
       </section>
 
@@ -745,8 +759,10 @@ function StatCard({
 /* --- Sub-component: form thêm goal --------------------------------------- */
 function GoalAddForm({
   onAdd,
+  onDone,
 }: {
   onAdd: (title: string, period: GoalPeriod, targetDate: string) => Promise<void>
+  onDone?: () => void
 }) {
   const [title, setTitle] = useState('')
   const [period, setPeriod] = useState<GoalPeriod>('week')
@@ -762,6 +778,7 @@ function GoalAddForm({
     setTargetDate('')
     setPeriod('week')
     setSaving(false)
+    onDone?.()
   }
 
   return (
