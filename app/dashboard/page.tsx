@@ -110,6 +110,7 @@ function DashboardInner() {
   const [freelance, setFreelance] = useState<FreelanceProject[]>([])
   const [goals, setGoals] = useState<Goal[]>([])
   const [notes, setNotes] = useState<Note[]>([])
+  const [subtaskCounts, setSubtaskCounts] = useState<Record<string, { done: number; total: number }>>({})
   const [loading, setLoading] = useState(true)
 
   // Modal freelance (thêm/sửa). null = đóng.
@@ -126,13 +127,17 @@ function DashboardInner() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [taskRes, evRes, flRes, goalRes, noteRes] = await Promise.all([
+    const [taskRes, subRes, evRes, flRes, goalRes, noteRes] = await Promise.all([
+      // Chỉ lấy task gốc (parent_task_id is null); subtask ẩn khỏi các khối cấp cao.
       supabase
         .from('tasks')
         .select(
           'id, title, status, priority, due_date, project_id, recurrence_group_id, projects(name)'
         )
+        .is('parent_task_id', null)
         .order('created_at', { ascending: false }),
+      // Đếm subtask theo từng task cha.
+      supabase.from('tasks').select('parent_task_id, status').not('parent_task_id', 'is', null),
       supabase
         .from('schedule_events')
         .select('id, title, start_time, end_time, completed, project_id, projects(name)')
@@ -144,6 +149,14 @@ function DashboardInner() {
       supabase.from('notes').select('*').order('created_at', { ascending: false }),
     ])
     setTasks((taskRes.data as unknown as TaskWithProject[]) ?? [])
+    const counts: Record<string, { done: number; total: number }> = {}
+    for (const s of (subRes.data as { parent_task_id: string; status: TaskStatus }[]) ?? []) {
+      const c = counts[s.parent_task_id] ?? { done: 0, total: 0 }
+      c.total += 1
+      if (s.status === 'done') c.done += 1
+      counts[s.parent_task_id] = c
+    }
+    setSubtaskCounts(counts)
     setEvents((evRes.data as unknown as ScheduleEventWithProject[]) ?? [])
     setFreelance((flRes.data as FreelanceProject[]) ?? [])
     setGoals((goalRes.data as Goal[]) ?? [])
@@ -458,6 +471,14 @@ function DashboardInner() {
                       >
                         {t.title}
                       </Link>
+                      {subtaskCounts[t.id] && (
+                        <span
+                          className="pill bg-sky-100 text-sky-700"
+                          title="Việc con đã hoàn thành / tổng số"
+                        >
+                          ☑ {subtaskCounts[t.id].done}/{subtaskCounts[t.id].total}
+                        </span>
+                      )}
                       <span className={`pill ${PRIORITY_STYLE[t.priority]}`}>
                         {PRIORITY_LABEL[t.priority]}
                       </span>

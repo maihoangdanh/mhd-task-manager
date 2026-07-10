@@ -29,7 +29,11 @@ function ScheduleInner() {
         .from('schedule_events')
         .select('id, title, start_time, end_time, task_id, tasks(title)')
         .order('start_time', { ascending: true }),
-      supabase.from('tasks').select('*').order('created_at', { ascending: false }),
+      supabase
+        .from('tasks')
+        .select('*')
+        .is('parent_task_id', null)
+        .order('created_at', { ascending: false }),
     ])
     if (evRes.error) setError(evRes.error.message)
     else setEvents((evRes.data as unknown as ScheduleEventWithTask[]) ?? [])

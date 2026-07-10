@@ -31,8 +31,12 @@ const PRIORITY_STYLE: Record<string, string> = {
   high: 'bg-rose-100 text-rose-700',
 }
 
+// Số subtask done/total của từng task cha (key = id task cha).
+type SubtaskCount = { done: number; total: number }
+
 function TasksInner() {
   const [tasks, setTasks] = useState<TaskWithProject[]>([])
+  const [subtaskCounts, setSubtaskCounts] = useState<Record<string, SubtaskCount>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | TaskStatus>('all')
@@ -41,12 +45,31 @@ function TasksInner() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('tasks')
-      .select('id, title, status, priority, due_date, project_id, recurrence_group_id, projects(name)')
-      .order('created_at', { ascending: false })
+    // Chỉ lấy task gốc (parent_task_id is null); subtask ẩn khỏi danh sách cấp cao.
+    const [{ data, error }, subRes] = await Promise.all([
+      supabase
+        .from('tasks')
+        .select(
+          'id, title, status, priority, due_date, project_id, recurrence_group_id, projects(name)'
+        )
+        .is('parent_task_id', null)
+        .order('created_at', { ascending: false }),
+      // Đếm subtask theo từng task cha.
+      supabase
+        .from('tasks')
+        .select('parent_task_id, status')
+        .not('parent_task_id', 'is', null),
+    ])
     if (error) setError(error.message)
     else setTasks((data as unknown as TaskWithProject[]) ?? [])
+    const counts: Record<string, SubtaskCount> = {}
+    for (const s of (subRes.data as { parent_task_id: string; status: TaskStatus }[]) ?? []) {
+      const c = counts[s.parent_task_id] ?? { done: 0, total: 0 }
+      c.total += 1
+      if (s.status === 'done') c.done += 1
+      counts[s.parent_task_id] = c
+    }
+    setSubtaskCounts(counts)
     setLoading(false)
   }, [])
 
@@ -252,6 +275,14 @@ function TasksInner() {
                                 title="Task lặp lại"
                               >
                                 🔁 Lặp
+                              </span>
+                            )}
+                            {subtaskCounts[task.id] && (
+                              <span
+                                className="pill bg-sky-100 text-sky-700"
+                                title="Việc con đã hoàn thành / tổng số"
+                              >
+                                ☑ {subtaskCounts[task.id].done}/{subtaskCounts[task.id].total} việc con
                               </span>
                             )}
                           </div>

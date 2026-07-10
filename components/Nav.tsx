@@ -7,6 +7,7 @@ import { useAuth } from '@/components/AuthProvider'
 const links = [
   { href: '/dashboard', label: 'Tổng quan' },
   { href: '/tasks', label: 'Công việc' },
+  { href: '/timeline', label: 'Timeline' },
   { href: '/schedule', label: 'Lịch trình' },
   { href: '/reports', label: 'Thống kê' },
 ]

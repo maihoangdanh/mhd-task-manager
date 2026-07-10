@@ -8,6 +8,7 @@ Nguồn chuẩn (source of truth) cho frontend-developer và qa-inspector. Front
   1. `supabase/migrations/20260709120000_init_schema.sql` — khởi tạo 3 bảng + RLS.
   2. `supabase/migrations/20260709160000_add_recurrence_group_id.sql` — thêm cột `recurrence_group_id` vào `tasks` (tính năng task lặp lại).
   3. `supabase/migrations/20260709170000_add_notes_goals_freelance.sql` — thêm 3 bảng `notes`, `goals`, `freelance_projects` (+ RLS) và 2 cột `completed`, `project_id` vào `schedule_events`.
+  4. `supabase/migrations/20260710120000_add_parent_task_and_start_date.sql` — thêm 2 cột `parent_task_id` (subtask, self-reference) và `start_date` (Timeline view) vào `tasks` + partial index cho `parent_task_id`.
 
 ## QUAN TRỌNG — cách áp dụng migration (người dùng tự chạy)
 
@@ -18,8 +19,9 @@ Môi trường agent này KHÔNG có network/CLI credentials tới Supabase, nê
 3. Dán toàn bộ nội dung file `supabase/migrations/20260709120000_init_schema.sql` -> **Run** (nếu đã chạy trước đó thì bỏ qua).
 4. Dán toàn bộ nội dung file `supabase/migrations/20260709160000_add_recurrence_group_id.sql` -> **Run** (migration cho task lặp lại — CẦN chạy để cột `recurrence_group_id` tồn tại).
 5. Dán toàn bộ nội dung file `supabase/migrations/20260709170000_add_notes_goals_freelance.sql` -> **Run** (migration MỚI NHẤT — tạo 3 bảng `notes`/`goals`/`freelance_projects` và thêm 2 cột `completed`/`project_id` vào `schedule_events`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
-6. Kiểm tra tab **Authentication -> Policies** thấy RLS đã bật (enabled) cho cả 6 bảng (`projects`, `tasks`, `schedule_events`, `notes`, `goals`, `freelance_projects`).
-7. Kiểm tra bảng `tasks` đã có cột `recurrence_group_id`, và bảng `schedule_events` đã có 2 cột `completed`, `project_id`.
+6. Dán toàn bộ nội dung file `supabase/migrations/20260710120000_add_parent_task_and_start_date.sql` -> **Run** (migration MỚI NHẤT — thêm 2 cột `parent_task_id`, `start_date` vào `tasks` và partial index). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
+7. Kiểm tra tab **Authentication -> Policies** thấy RLS đã bật (enabled) cho cả 6 bảng (`projects`, `tasks`, `schedule_events`, `notes`, `goals`, `freelance_projects`).
+8. Kiểm tra bảng `tasks` đã có các cột `recurrence_group_id`, `parent_task_id`, `start_date`, và bảng `schedule_events` đã có 2 cột `completed`, `project_id`.
 
 ## Quy ước đặt tên — điểm dễ gây lỗi ranh giới
 
@@ -71,10 +73,21 @@ RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) 
 | created_at | timestamptz | không | `now()` | Thời điểm tạo |
 | updated_at | timestamptz | không | `now()` | Cập nhật lần cuối (frontend tự set `now()` khi update; chưa có trigger tự động) |
 | recurrence_group_id | uuid | có | null | Nhóm các task cùng một chuỗi lặp lại. `null` = task đơn lẻ. Thêm bởi migration `20260709160000`. Có partial index `where recurrence_group_id is not null`. |
+| parent_task_id | uuid | có | null | FK -> `tasks(id)` (self-reference), ON DELETE CASCADE (xóa task cha thì xóa luôn subtask). `null` = task gốc. Chỉ 1 cấp lồng — KHÔNG enforce bằng CHECK ở DB, UI chịu trách nhiệm không tạo subtask của subtask. Thêm bởi migration `20260710120000`. Có partial index `where parent_task_id is not null`. |
+| start_date | date | có | null | Ngày bắt đầu (chỉ ngày, không giờ), dùng cho Timeline view. `null` = chưa đặt. Thêm bởi migration `20260710120000`. |
 
 RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) with check (auth.uid() = user_id)`.
 
 Lưu ý cho frontend: `updated_at` KHÔNG có trigger tự cập nhật ở DB. Khi update task, gửi kèm `updated_at: new Date().toISOString()` nếu muốn giá trị chính xác.
+
+### Cách dùng `parent_task_id` (subtask — task con, chỉ 1 cấp)
+
+- Task cha: `parent_task_id = null` (task gốc). Subtask: `parent_task_id` = `id` của task cha.
+- Chỉ hỗ trợ **1 cấp**: subtask KHÔNG được có subtask riêng. DB không chặn việc này (không CHECK) — frontend/UI phải đảm bảo chỉ cho tạo subtask dưới task gốc.
+- Xóa task cha sẽ tự động xóa hết subtask (ON DELETE CASCADE). RLS vẫn giới hạn theo user.
+- Khi INSERT subtask, vẫn phải set `user_id` = user hiện tại (giống mọi row khác), nếu không `with check` sẽ chặn.
+- Lấy subtask của một task cha: `supabase.from('tasks').select('*').eq('parent_task_id', parentId)` — partial index giúp query nhanh.
+- `start_date` dùng cho Timeline view; kết hợp với `due_date` để vẽ thanh thời gian (start_date -> due_date). Cả hai đều nullable, UI cần xử lý trường hợp thiếu.
 
 ### Cách dùng `recurrence_group_id` (task lặp lại hàng ngày trong khoảng thời gian)
 
@@ -165,6 +178,7 @@ RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) 
 - `projects.user_id` -> `auth.users.id` (CASCADE)
 - `tasks.user_id` -> `auth.users.id` (CASCADE)
 - `tasks.project_id` -> `projects.id` (SET NULL)
+- `tasks.parent_task_id` -> `tasks.id` (self-reference, CASCADE)
 - `schedule_events.user_id` -> `auth.users.id` (CASCADE)
 - `schedule_events.task_id` -> `tasks.id` (CASCADE)
 - `schedule_events.project_id` -> `projects.id` (SET NULL)

@@ -90,6 +90,7 @@ export default function TaskForm({ task }: { task?: Task }) {
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? 'todo')
   const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? 'medium')
   const [dueDate, setDueDate] = useState(task?.due_date ?? '')
+  const [taskStartDate, setTaskStartDate] = useState(task?.start_date ?? '')
   const [projectId, setProjectId] = useState<string>(task?.project_id ?? '')
   const [newProject, setNewProject] = useState('')
 
@@ -194,7 +195,12 @@ export default function TaskForm({ task }: { task?: Task }) {
       if (isEdit && task) {
         const { error } = await supabase
           .from('tasks')
-          .update({ ...base, due_date: dueDate || null, updated_at: new Date().toISOString() })
+          .update({
+            ...base,
+            due_date: dueDate || null,
+            start_date: taskStartDate || null,
+            updated_at: new Date().toISOString(),
+          })
           .eq('id', task.id)
         if (error) throw error
       } else if (recurring) {
@@ -214,7 +220,12 @@ export default function TaskForm({ task }: { task?: Task }) {
       } else {
         const { error } = await supabase
           .from('tasks')
-          .insert({ ...base, due_date: dueDate || null, user_id: user.id })
+          .insert({
+            ...base,
+            due_date: dueDate || null,
+            start_date: taskStartDate || null,
+            user_id: user.id,
+          })
         if (error) throw error
       }
 
@@ -296,15 +307,27 @@ export default function TaskForm({ task }: { task?: Task }) {
       )}
 
       {!recurring ? (
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">Hạn chót</span>
-          <input
-            type="date"
-            value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
-            className={inputClass}
-          />
-        </label>
+        <div className="grid grid-cols-2 gap-4">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">Ngày bắt đầu</span>
+            <input
+              type="date"
+              value={taskStartDate}
+              onChange={(e) => setTaskStartDate(e.target.value)}
+              className={inputClass}
+            />
+            <span className="text-xs text-slate-400">Dùng cho Timeline</span>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">Hạn chót</span>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+        </div>
       ) : (
         <div className="flex flex-col gap-4 rounded-xl border border-[var(--line)] p-4">
           <div className="grid grid-cols-2 gap-4">

@@ -42,6 +42,7 @@ function ReportsInner() {
     supabase
       .from('tasks')
       .select('id, status, due_date, updated_at, project_id, projects(name)')
+      .is('parent_task_id', null)
       .then(({ data, error }) => {
         if (error) setError(error.message)
         else setTasks((data as unknown as ReportTask[]) ?? [])

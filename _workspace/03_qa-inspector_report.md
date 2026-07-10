@@ -293,3 +293,69 @@ Phương pháp: đọc trực tiếp code grouping/sort/render; tự trace ví d
 ### Kết luận
 - **Redesign `/tasks` (nhóm theo project + progress bar độc lập bộ lọc): PASS toàn bộ.** (1) Progress % dùng `group.all` → bất biến qua filter (đã trace 2/5=40%); (2) sort A-Z + `isNone` đẩy "Chưa phân nhóm" xuống cuối bất kể tên/ký tự đặc biệt; (3) toggleDone optimistic + requestDelete/deleteOne/deleteChain + modal chuỗi + badge 🔁 còn đủ; (4) nhóm rỗng sau lọc vẫn hiện header+progress+"Không có việc nào khớp bộ lọc". Không đổi schema/query nên ranh giới DB↔Frontend giữ nguyên PASS. Không có lỗi chặn.
 - Task #15 (QA): HOÀN THÀNH — không còn lỗi pending.
+
+---
+
+## Kết quả QA #8 — 2026-07-10 — Subtask (task con 1 cấp) + Timeline view + `start_date` (Task #18)
+
+Nguồn: `supabase/migrations/20260710120000_add_parent_task_and_start_date.sql` + `types/database.ts` ↔ `app/tasks/[id]/page.tsx`, `app/tasks/page.tsx`, `app/dashboard/page.tsx`, `app/timeline/page.tsx`, `components/TaskForm.tsx`. Đối chiếu schema-contract L11/76-77/83-90 + pages-map L29-30/50-52.
+Phương pháp: đọc đồng thời migration ↔ type ↔ query; grep toàn repo tìm mọi nơi chạm `parent_task_id`/`start_date`; tự trace logic Timeline bằng ví dụ số cụ thể.
+
+### 1) Tên cột `parent_task_id` / `start_date` — khớp CHÍNH XÁC mọi nơi — PASS
+- Migration L21-23: `add column parent_task_id uuid references tasks(id) on delete cascade, add column start_date date;` — snake_case, `parent_task_id` self-reference CASCADE, cả hai **nullable** (không NOT NULL/default) → khớp "null = task gốc / chưa đặt". Partial index L30-32 `where parent_task_id is not null`.
+- `types/database.ts:26-27`: `parent_task_id: string | null`, `start_date: string | null` — snake_case, `| null` khớp nullable, `uuid`/`date`→`string`. Không camelCase drift. `TaskWithProject` kế thừa.
+- Grep toàn repo (`.ts/.tsx`): mọi tham chiếu đều snake_case — tasks/[id]:29/77/197, tasks/page:55/60-61/66-70, dashboard:137/140/153-157, timeline:75/99, TaskForm:93/201/226. KHÔNG có `parentTaskId`/`startDate` (camelCase) lẫn lộn với cột DB. `TaskForm` cố tình đặt state `taskStartDate` (L93) tách biệt với `startDate` của khoảng lặp (L99) — không đụng nhau, không nhầm. **KHỚP tuyệt đối.**
+
+### 2) Subtask ẩn khỏi /tasks + dashboard "Công việc" — không sót — PASS
+- `/tasks` query chính (tasks/page.tsx:55): `.is('parent_task_id', null)` ✓
+- `/dashboard` query chính (dashboard:137): `.is('parent_task_id', null)` ✓
+- Query đếm subtask ở CẢ hai nơi dùng `.not('parent_task_id', 'is', null)` (tasks/page:61, dashboard:140) — đúng nghịch đảo, chỉ lấy subtask để đếm.
+- **Advisory (không chặn, ngoài phạm vi Task #18 nhưng nêu để nhất quán ranh giới):** `/reports` (reports:43-44) và `/schedule` dropdown (schedule:32) query `tasks` **KHÔNG** lọc `parent_task_id`. Hệ quả: subtask ĐƯỢC tính vào thống kê `/reports` (tổng task, tỷ lệ hoàn thành, phân bố status, breakdown project, xu hướng 8 tuần) và xuất hiện trong dropdown liên kết sự kiện ở `/schedule`. Đây là quyết định sản phẩm (subtask có nên tính là "task" trong report không?), không phải lỗi runtime — nhưng là điểm KHÔNG NHẤT QUÁN với việc ẩn subtask ở /tasks & dashboard. Gợi ý frontend-developer cân nhắc thêm `.is('parent_task_id', null)` vào reports (và có thể schedule) nếu muốn subtask không tính vào số liệu. Lưu ý: overdue trong report sẽ KHÔNG bị subtask ảnh hưởng vì subtask không có `due_date` (xem mục 6), nhưng `total`/`completionRate`/breakdown thì CÓ.
+
+### 3) SubtaskSection CHỈ hiện khi task gốc (`parent_task_id === null`) — PASS
+- tasks/[id]:197: `{task.parent_task_id === null && <SubtaskSection parent={task} />}` — so sánh chặt `=== null`.
+- `task` lấy qua `.select('*')` (tasks/[id]:168) → row ĐẦY ĐỦ, `parent_task_id` là giá trị THẬT (null cho task gốc, uuid cho subtask) chứ không phải cột bị bỏ khỏi select. Khi mở 1 subtask, `parent_task_id` là uuid → `=== null` false → khu Việc con ẩn → subtask KHÔNG thể có subtask con. UI enforce đúng 1 cấp (DB không CHECK, khớp contract L86).
+- Bổ sung: KHÔNG có đường dẫn UI nào để mở 1 subtask trong TaskForm (danh sách subtask trong SubtaskSection chỉ có checkbox + Xóa, không link Sửa; /tasks & dashboard đã ẩn subtask). Nên subtask không bao giờ được gán `due_date`/`start_date` qua form.
+
+### 4) Insert subtask — set đúng user_id + parent_task_id + kế thừa project_id cha — PASS
+- tasks/[id]:71-78: `.insert({ title, status:'todo', priority:'medium', project_id: parent.project_id, user_id: user.id, parent_task_id: parent.id })`.
+  - `user_id: user.id` → thỏa RLS `with check (auth.uid()=user_id)`. Guard L66 `if (!title || !user) return` → `user` non-null. ✓
+  - `parent_task_id: parent.id` → trỏ đúng task cha. ✓
+  - `project_id: parent.project_id` → kế thừa từ cha; `parent` là row `select('*')` nên `project_id` là giá trị thật (null nếu cha chưa phân nhóm → subtask cũng null, đúng). ✓
+  - `status='todo'`, `priority='medium'` khớp CHECK enum. ✓
+
+### 5) Badge đếm subtask (x/y) — nhất quán giữa các nơi — PASS
+- Logic gộp GIỐNG HỆT ở /tasks (tasks/page:66-71) và dashboard (dashboard:153-158): duyệt rows subtask, `c.total += 1`, `if status==='done' c.done += 1`, key = `parent_task_id`. Cùng nguồn query (`.select('parent_task_id, status').not('parent_task_id','is',null)`), cùng thuật toán → số x/y bằng nhau ở 2 nơi cho cùng 1 task cha.
+- Hiển thị: /tasks (L280-287) `☑ {done}/{total} việc con`; dashboard (L474-481) `☑ {done}/{total}`; nơi thứ 3 là chính trang chi tiết SubtaskSection (L90/96-99) `done = subtasks.filter(status==='done')`, `{done}/{subtasks.length}` — đếm cùng cách trên chính danh sách subtask đang tải. Cả 3 nhất quán.
+
+### 6) Logic vẽ thanh Timeline — đã tự trace — PASS
+- **Loại task không có due_date đúng:** query `.not('due_date', 'is', null)` (timeline:76). Task không có `due_date` bị loại. Vì subtask (tạo qua quick-add) KHÔNG bao giờ có `due_date` (insert bỏ qua due_date) → subtask tự động vắng mặt khỏi Timeline, không cần lọc `parent_task_id` riêng. ✓
+- **So sánh chuỗi YYYY-MM-DD, không convert qua Date (không lệch timezone):** placement L97-124 dùng so sánh chuỗi trực tiếp (`end < monthStartYmd`, `start > monthEndYmd`, `start < monthStartYmd`, `end > monthEndYmd`). `monthStartYmd`/`monthEndYmd`/`todayYmd` sinh bằng `toYmd()` (L33-38, dùng getFullYear/getMonth/getDate = LOCAL). `due_date`/`start_date` là chuỗi thô từ DB, KHÔNG round-trip qua `new Date()` trước khi so sánh. → không có drift UTC. VN không DST. ✓
+- **Task chỉ có due_date → thanh 1 ngày:** L99 `const start = t.start_date && t.start_date <= end ? t.start_date : end`. `start_date` null → `start = end` → `startDay === endDay` → `gridColumn: n / n+1` → đúng 1 cột. ✓
+- **start_date > due_date (dữ liệu lỗi) → fallback 1 ngày:** điều kiện `t.start_date <= end` false → `start = end`. Graceful, không vẽ thanh ngược. ✓
+- **Span nhiều ngày:** startDay=5,endDay=10 → `gridColumn: 5 / 11` → phủ cột 5-10 (6 ngày inclusive). Đúng. `dayOfMonth(ymd)=Number(ymd.slice(8,10))`. ✓
+- **Cắt biên tháng (clamp):** thanh trải qua biên → `clampedStart=max(start,monthStart)`, `clampedEnd=min(end,monthEnd)`; `continuesLeft=start<monthStartYmd` (bo góc phẳng trái `rounded-l-none`), `continuesRight=end>monthEndYmd` (phẳng phải). Grid header ngày và grid hàng task cùng `gridTemplateColumns` + cùng offset `LABEL_W` → cột thẳng hàng. ✓
+- **Trace ví dụ (xem Tháng 7/2026, 31 ngày):** Task A start=`2026-06-28` due=`2026-07-03`: end(07-03) ≥ monthStart(07-01) và start(06-28) ≤ monthEnd(07-31) → giữ; clampedStart=07-01→day1, clampedEnd=07-03→day3, continuesLeft=true. gridColumn `1/4` (cột 1-3), bo trái phẳng. Đúng. Task B due=`2026-07-15` không start_date → start=end=07-15 → gridColumn `15/16`, thanh 1 ngày. Task C due=`2026-08-02` → end(08-02) < monthStart(07-01)? Không; start(08-02) > monthEnd(07-31)? Có → `continue`, bị loại khỏi tháng 7. Đúng.
+- **Điều hướng tháng + Hôm nay + click thanh:** prevMonth/nextMonth/goToday (L135-148) dùng `new Date(year, month±1, 1)` (day=1 an toàn, không tràn ngày). Click thanh → `href={`/tasks/${p.task.id}`}` → route `/tasks/[id]` tồn tại. ✓ Legend màu + nhãn tiêu đề cột trái (không nhận diện chỉ bằng màu) — thoả dataviz.
+
+### 7) TaskForm `start_date` — đúng nhánh, không set khi lặp — PASS
+- Edit (L196-204): update gửi `start_date: taskStartDate || null` ✓. Create thường (L221-229): insert `start_date: taskStartDate || null` ✓.
+- Create lặp (L206-218): `rows` spread `...base` (base L187-193 KHÔNG chứa start_date) + `due_date`+`user_id`+`recurrence_group_id` → KHÔNG có `start_date` → default null ở DB. Đúng spec "chuỗi lặp KHÔNG set start_date". ✓
+- Field UI "Ngày bắt đầu" (L311-320) nằm trong nhánh `!recurring`. Toggle "Lặp lại" chỉ render khi `!isEdit` (L297) → ở chế độ SỬA `recurring` luôn false → field start_date luôn hiện. Ở TẠO thường hiện, TẠO lặp ẩn. Khớp pages-map L43. ✓
+
+### Verify
+- `npx tsc --noEmit`: **PASS** (exit 0) — không lỗi type, không `any` che lỗi (dùng `as unknown as TaskWithProject[]` + type hẹp `{ parent_task_id: string; status: TaskStatus }[]` cho query đếm — cùng mẫu advisory các QA trước).
+
+### Fail
+- (không có lỗi ranh giới chặn — không cần chuyển yêu cầu sửa gấp cho frontend-developer)
+
+### Quan sát nhỏ (advisory — KHÔNG chặn)
+- **`/reports` + `/schedule` không lọc subtask** (đã nêu mục 2): điểm không nhất quán, tùy quyết định sản phẩm. Nếu muốn subtask không tính vào số liệu report, thêm `.is('parent_task_id', null)` ở reports:43. Không phải lỗi runtime.
+- **Query đếm subtask không `.limit()`**: Supabase mặc định trả tối đa 1000 row; nếu tổng subtask toàn user > 1000 thì badge lệch. Edge case rất hiếm ở quy mô app cá nhân; cùng giới hạn với query list chính (không mới). Bỏ qua.
+- `setTasks(... as unknown as TaskWithProject[])` (tasks/page:64, dashboard:151, timeline:79): query chọn TẬP CON cột nhưng cast type đầy đủ — an toàn hiện tại vì các view không đọc cột chưa select. Cùng mẫu advisory QA #3/#5/#6/#7.
+- **Điều kiện chạy thật:** người dùng PHẢI chạy migration `20260710120000_add_parent_task_and_start_date.sql` trên Supabase SQL Editor. Nếu chưa: cột `parent_task_id`/`start_date` chưa tồn tại → `.is('parent_task_id', null)`, `.select('...start_date...')`, và insert subtask sẽ lỗi "column does not exist". Đã ghi rõ schema-contract L22.
+- Giới hạn môi trường agent: nội dung sau `RequireAuth` cần đăng nhập Supabase nên không drive end-to-end; xác thực qua đọc code + trace số + tsc. Kiểm thủ công sau đăng nhập (đã chạy migration): (1) mở task gốc → thấy khu Việc con, thêm/tick/xóa subtask hoạt động + optimistic; (2) subtask KHÔNG hiện ở /tasks & dashboard, badge ☑ x/y đúng; (3) mở 1 subtask (nếu có link) → KHÔNG có khu Việc con; (4) /timeline: task span đúng start→due, cắt biên tháng, 1 ngày khi chỉ có due_date, task không due_date vắng mặt, chuyển tháng + click thanh → /tasks/{id}.
+
+### Kết luận
+- **Cross-boundary cho Subtask + Timeline + `start_date`: PASS toàn bộ.** Tên cột khớp CHÍNH XÁC 3 nơi (migration/type/code); subtask ẩn đúng khỏi /tasks & dashboard (không sót); SubtaskSection chỉ hiện với task gốc (1 cấp UI enforce); insert subtask set đủ user_id + parent_task_id + kế thừa project_id; badge x/y nhất quán 3 nơi; logic Timeline đúng (so sánh chuỗi YYYY-MM-DD không lệch timezone, 1 ngày/nhiều ngày/clamp biên/loại task không due_date — đã trace). Không có lỗi chặn. 1 advisory không nhất quán: /reports & /schedule chưa lọc subtask (product decision).
+- Task #18 (QA): HOÀN THÀNH — không còn lỗi pending.

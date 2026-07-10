@@ -23,6 +23,8 @@ export type Task = {
   created_at: string
   updated_at: string
   recurrence_group_id: string | null // nhóm task cùng chuỗi lặp lại; null = task đơn lẻ
+  parent_task_id: string | null // subtask (self-reference), 1 cấp; null = task gốc. migration 20260710120000
+  start_date: string | null // kiểu date -> 'YYYY-MM-DD', dùng cho Timeline. migration 20260710120000
 }
 
 // Task kèm tên project khi embed qua FK: .select('..., projects(name)')
