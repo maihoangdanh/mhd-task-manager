@@ -10,7 +10,6 @@ const links = [
   { href: '/timeline', label: 'Timeline' },
   { href: '/schedule', label: 'Lịch trình' },
   { href: '/reports', label: 'Thống kê' },
-  { href: '/settings', label: 'Cài đặt' },
 ]
 
 export default function Nav() {
