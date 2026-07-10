@@ -292,9 +292,12 @@ function DashboardInner() {
   // Section 4: CHỈ 2 loại — (1) việc có hạn đúng hôm nay (mọi trạng thái, done thì gạch ngang thay vì
   // ẩn, để thấy tiến độ trong ngày), và (2) việc quá hạn (due_date < hôm nay) NHƯNG CHƯA hoàn thành
   // (quá hạn mà đã done thì ẩn luôn, không cần giữ lại). Task không có due_date hoặc due_date tương
-  // lai đều không hiện ở đây.
+  // lai đều không hiện ở đây. Task category='habit' KHÔNG hiện ở đây nữa — chuyển hẳn sang khối
+  // "Lịch trình hôm nay" (section 3) vì bản chất là thói quen/lịch trình cố định, không phải việc cần làm.
   const activeTasks = tasks.filter(
-    (t) => t.due_date === todayYmd || (!!t.due_date && t.due_date < todayYmd && t.status !== 'done')
+    (t) =>
+      t.category !== 'habit' &&
+      (t.due_date === todayYmd || (!!t.due_date && t.due_date < todayYmd && t.status !== 'done'))
   )
   const taskGroups = new Map<string, { name: string; items: TaskWithProject[] }>()
   for (const t of activeTasks) {
@@ -303,6 +306,45 @@ function DashboardInner() {
     if (!taskGroups.has(key)) taskGroups.set(key, { name, items: [] })
     taskGroups.get(key)!.items.push(t)
   }
+
+  // Section 3: "Lịch trình hôm nay" gộp 2 nguồn — schedule_events (có giờ cụ thể) VÀ task
+  // category='habit' đến hạn hôm nay (không có giờ cụ thể, xem như "cả ngày"). Sắp xếp: mục
+  // không giờ ("cả ngày") lên đầu giống lịch Google Calendar, còn lại theo giờ tăng dần.
+  type TodayRow = {
+    key: string
+    timeLabel: string
+    sortKey: string
+    title: string
+    source: string
+    done: boolean
+    onToggle: () => void
+  }
+  const habitTodayTasks = tasks.filter((t) => t.category === 'habit' && t.due_date === todayYmd)
+  const eventRows: TodayRow[] = events.map((ev) => {
+    const hhmm = new Date(ev.start_time).toLocaleTimeString('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    return {
+      key: `ev-${ev.id}`,
+      timeLabel: hhmm,
+      sortKey: `1-${hhmm}`,
+      title: ev.title,
+      source: ev.projects?.name ?? 'Cá nhân',
+      done: ev.completed,
+      onToggle: () => toggleEvent(ev),
+    }
+  })
+  const habitRows: TodayRow[] = habitTodayTasks.map((t) => ({
+    key: `task-${t.id}`,
+    timeLabel: 'Cả ngày',
+    sortKey: `0-${t.title}`,
+    title: t.title,
+    source: t.projects?.name ?? 'Cá nhân',
+    done: t.status === 'done',
+    onToggle: () => toggleTaskDone(t),
+  }))
+  const todayRows = [...eventRows, ...habitRows].sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 
   // Section 7: chuỗi lặp có due_date trong tuần hiện tại, nhóm theo recurrence_group_id.
   const weekStart = weekYmds[0]
@@ -386,7 +428,7 @@ function DashboardInner() {
             Xem lịch →
           </Link>
         </div>
-        {events.length === 0 ? (
+        {todayRows.length === 0 ? (
           <p className="text-sm text-slate-400">Hôm nay không có lịch trình nào.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -400,36 +442,31 @@ function DashboardInner() {
                 </tr>
               </thead>
               <tbody>
-                {events.map((ev) => (
-                  <tr key={ev.id} className="border-b border-[var(--line)] last:border-0">
+                {todayRows.map((row) => (
+                  <tr key={row.key} className="border-b border-[var(--line)] last:border-0">
                     <td className="whitespace-nowrap py-2.5 pr-3 tabular-nums text-slate-600">
-                      {new Date(ev.start_time).toLocaleTimeString('vi-VN', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                      {row.timeLabel}
                     </td>
                     <td
                       className={`py-2.5 pr-3 font-medium ${
-                        ev.completed ? 'text-slate-400 line-through' : 'text-slate-800'
+                        row.done ? 'text-slate-400 line-through' : 'text-slate-800'
                       }`}
                     >
-                      {ev.title}
+                      {row.title}
                     </td>
                     <td className="py-2.5 pr-3">
-                      <span className="pill bg-slate-100 text-slate-600">
-                        {ev.projects?.name ?? 'Cá nhân'}
-                      </span>
+                      <span className="pill bg-slate-100 text-slate-600">{row.source}</span>
                     </td>
                     <td className="py-2.5">
                       <label className="inline-flex cursor-pointer items-center gap-2">
                         <input
                           type="checkbox"
-                          checked={ev.completed}
-                          onChange={() => toggleEvent(ev)}
+                          checked={row.done}
+                          onChange={row.onToggle}
                           className="h-4.5 w-4.5 accent-indigo-600"
                         />
-                        <span className={`text-xs ${ev.completed ? 'text-emerald-600' : 'text-slate-400'}`}>
-                          {ev.completed ? 'Xong' : 'Chưa'}
+                        <span className={`text-xs ${row.done ? 'text-emerald-600' : 'text-slate-400'}`}>
+                          {row.done ? 'Xong' : 'Chưa'}
                         </span>
                       </label>
                     </td>
