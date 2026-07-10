@@ -132,7 +132,7 @@ function DashboardInner() {
       supabase
         .from('tasks')
         .select(
-          'id, title, status, priority, due_date, project_id, recurrence_group_id, projects(name)'
+          'id, title, status, priority, due_date, project_id, recurrence_group_id, category, projects(name)'
         )
         .is('parent_task_id', null)
         .order('created_at', { ascending: false }),
@@ -303,9 +303,12 @@ function DashboardInner() {
   // Section 7: chuỗi lặp có due_date trong tuần hiện tại, nhóm theo recurrence_group_id.
   const weekStart = weekYmds[0]
   const weekEnd = weekYmds[6]
+  // Chỉ lấy chuỗi lặp là THÓI QUEN (category === 'habit'); chuỗi 'work'
+  // (vd daily standup công ty) không hiện ở lưới này — vẫn hiện trong mục Công việc.
   const habitTasks = tasks.filter(
     (t) =>
       t.recurrence_group_id &&
+      t.category === 'habit' &&
       t.due_date &&
       t.due_date >= weekStart &&
       t.due_date <= weekEnd
@@ -479,6 +482,22 @@ function DashboardInner() {
                           ☑ {subtaskCounts[t.id].done}/{subtaskCounts[t.id].total}
                         </span>
                       )}
+                      {t.recurrence_group_id &&
+                        (t.category === 'habit' ? (
+                          <span
+                            className="pill bg-rose-100 text-rose-700"
+                            title="Thói quen lặp lại"
+                          >
+                            🔁 Thói quen
+                          </span>
+                        ) : (
+                          <span
+                            className="pill bg-violet-100 text-violet-700"
+                            title="Công việc lặp lại"
+                          >
+                            🔁 Lặp
+                          </span>
+                        ))}
                       <span className={`pill ${PRIORITY_STYLE[t.priority]}`}>
                         {PRIORITY_LABEL[t.priority]}
                       </span>

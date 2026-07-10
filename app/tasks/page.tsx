@@ -50,7 +50,7 @@ function TasksInner() {
       supabase
         .from('tasks')
         .select(
-          'id, title, status, priority, due_date, project_id, recurrence_group_id, projects(name)'
+          'id, title, status, priority, due_date, project_id, recurrence_group_id, category, projects(name)'
         )
         .is('parent_task_id', null)
         .order('created_at', { ascending: false }),
@@ -269,14 +269,22 @@ function TasksInner() {
                             <span className={`pill ${PRIORITY_STYLE[task.priority]}`}>
                               {PRIORITY_LABEL[task.priority]}
                             </span>
-                            {task.recurrence_group_id && (
-                              <span
-                                className="pill bg-violet-100 text-violet-700"
-                                title="Task lặp lại"
-                              >
-                                🔁 Lặp
-                              </span>
-                            )}
+                            {task.recurrence_group_id &&
+                              (task.category === 'habit' ? (
+                                <span
+                                  className="pill bg-rose-100 text-rose-700"
+                                  title="Thói quen lặp lại"
+                                >
+                                  🔁 Thói quen
+                                </span>
+                              ) : (
+                                <span
+                                  className="pill bg-violet-100 text-violet-700"
+                                  title="Công việc lặp lại"
+                                >
+                                  🔁 Lặp
+                                </span>
+                              ))}
                             {subtaskCounts[task.id] && (
                               <span
                                 className="pill bg-sky-100 text-sky-700"

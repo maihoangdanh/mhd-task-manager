@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
-import type { Project, Task, TaskPriority, TaskStatus } from '@/types/database'
+import type { Project, Task, TaskCategory, TaskPriority, TaskStatus } from '@/types/database'
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'todo', label: 'Cần làm' },
@@ -96,6 +96,8 @@ export default function TaskForm({ task }: { task?: Task }) {
 
   // --- Chế độ lặp lại hàng ngày (chỉ khi tạo mới) ---
   const [recurring, setRecurring] = useState(false)
+  // Loại chuỗi lặp: 'work' (công việc, mặc định) hoặc 'habit' (thói quen).
+  const [recurringCategory, setRecurringCategory] = useState<TaskCategory>('work')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [excludedWeekdays, setExcludedWeekdays] = useState<Set<number>>(new Set())
@@ -214,6 +216,7 @@ export default function TaskForm({ task }: { task?: Task }) {
           due_date: d,
           user_id: user.id,
           recurrence_group_id: groupId,
+          category: recurringCategory,
         }))
         const { error } = await supabase.from('tasks').insert(rows)
         if (error) throw error
@@ -330,6 +333,39 @@ export default function TaskForm({ task }: { task?: Task }) {
         </div>
       ) : (
         <div className="flex flex-col gap-4 rounded-xl border border-[var(--line)] p-4">
+          <div className="flex flex-col gap-2 text-sm">
+            <span className={labelText}>Loại chuỗi</span>
+            <div className="flex gap-2">
+              {([
+                { value: 'work', label: 'Công việc' },
+                { value: 'habit', label: 'Thói quen' },
+              ] as const).map((opt) => {
+                const active = recurringCategory === opt.value
+                const activeClass =
+                  opt.value === 'habit'
+                    ? 'bg-rose-100 text-rose-700 ring-1 ring-rose-300'
+                    : 'bg-violet-100 text-violet-700 ring-1 ring-violet-300'
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setRecurringCategory(opt.value)}
+                    className={`rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                      active
+                        ? activeClass
+                        : 'border border-[var(--line)] bg-white text-slate-600 hover:bg-indigo-50'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+            <span className="text-xs text-slate-400">
+              &quot;Thói quen&quot; hiện ở lưới theo dõi thói quen; &quot;Công việc&quot; xem như task thường theo project.
+            </span>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <label className="flex flex-col gap-1 text-sm">
               <span className={labelText}>Ngày bắt đầu *</span>

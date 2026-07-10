@@ -359,3 +359,53 @@ Phương pháp: đọc đồng thời migration ↔ type ↔ query; grep toàn r
 ### Kết luận
 - **Cross-boundary cho Subtask + Timeline + `start_date`: PASS toàn bộ.** Tên cột khớp CHÍNH XÁC 3 nơi (migration/type/code); subtask ẩn đúng khỏi /tasks & dashboard (không sót); SubtaskSection chỉ hiện với task gốc (1 cấp UI enforce); insert subtask set đủ user_id + parent_task_id + kế thừa project_id; badge x/y nhất quán 3 nơi; logic Timeline đúng (so sánh chuỗi YYYY-MM-DD không lệch timezone, 1 ngày/nhiều ngày/clamp biên/loại task không due_date — đã trace). Không có lỗi chặn. 1 advisory không nhất quán: /reports & /schedule chưa lọc subtask (product decision).
 - Task #18 (QA): HOÀN THÀNH — không còn lỗi pending.
+
+---
+
+## Kết quả QA #9 — 2026-07-10 — Phân loại chuỗi lặp "Công việc"/"Thói quen" (cột `category`) (Task #21)
+
+Nguồn: `supabase/migrations/20260710130000_add_task_category.sql` + `types/database.ts` ↔ `components/TaskForm.tsx`, `app/tasks/page.tsx`, `app/dashboard/page.tsx`. Đối chiếu schema-contract L12/24/26/80/103-107 + pages-map (đã cập nhật).
+Phương pháp: đọc đồng thời migration ↔ type ↔ 3 nơi code; grep toàn repo tìm mọi nơi chạm `category`; tự trace luồng insert chuỗi + lọc lưới thói quen bằng ví dụ cụ thể.
+
+### 1) Cột `category` khớp CHÍNH XÁC mọi nơi — PASS
+- Migration L20-22: `add column category text not null default 'work' check (category in ('habit','work'))` — snake_case, `text`, **NOT NULL**, default `'work'`, CHECK enum đúng 2 giá trị.
+- `types/database.ts:6`: `TaskCategory = 'habit' | 'work'` khớp CHECK; `:29` `category: TaskCategory` (KHÔNG `| null` — đúng vì NOT NULL). `TaskWithProject` kế thừa. Không camelCase drift.
+- Grep toàn repo (`.ts/.tsx/.sql/.md`): chỉ 6 file chạm `category` (migration, type, TaskForm, tasks/page, dashboard, pages-map) — không nơi nào dùng `categoryType`/camelCase. Query select ở tasks/page:53 và dashboard:135 đều liệt kê đúng chuỗi `...recurrence_group_id, category, projects(name)` (snake_case). **KHỚP tuyệt đối.**
+
+### 2) Tạo chuỗi lặp — MỌI row nhận đúng `category` người dùng chọn — PASS
+- TaskForm state: `recurringCategory` khởi tạo `'work'`, typed `TaskCategory` (L100); nút chọn "Công việc"→`'work'` / "Thói quen"→`'habit'` (L339-342) gọi `setRecurringCategory(opt.value)` — chỉ gán 2 giá trị hợp lệ CHECK.
+- Insert chuỗi (L214-220): `rows = recurringDates.map((d) => ({ ...base, due_date: d, user_id: user.id, recurrence_group_id: groupId, category: recurringCategory }))`. `category: recurringCategory` nằm TRONG map → áp cho TỪNG row, không phải chỉ row đầu. `base` (L189-195) KHÔNG chứa `category` nên `...base` không ghi đè mất. → Toàn bộ chuỗi đồng nhất 1 category. Không row nào thiếu/sai.
+- **Trace:** chọn "Thói quen" + khoảng 3 ngày hợp lệ → 3 row đều `category='habit'`, cùng `recurrence_group_id`. Chọn "Công việc" → 3 row đều `category='work'`. Đúng.
+
+### 3) Task thường (không lặp) + chế độ SỬA — KHÔNG gửi `category` sai lệch — PASS
+- Non-recurring create (L224-232): insert `{ ...base, due_date, start_date, user_id }` — KHÔNG có `category` → DB tự nhận default `'work'`. Đúng (task thường mặc định "work", không có badge lặp nên category không hiển thị).
+- Edit (L197-207): update `{ ...base, due_date, start_date, updated_at }` — KHÔNG có `category` → UPDATE không đụng cột `category` → **giữ nguyên giá trị cũ** trong DB. Đúng, không ghi đè. `base` (dùng chung cả 3 nhánh) không chứa `category` nên không rò rỉ sang edit/non-recurring.
+- Toggle done ở /tasks (L118-121) và dashboard (L192-195): update chỉ `{ status, updated_at }` — không đụng `category`. Giữ nguyên. ✓
+
+### 4) Badge phân loại — đúng nhãn/màu ở CẢ /tasks và dashboard — PASS
+- /tasks (L272-287): `task.recurrence_group_id && (category==='habit' ? "🔁 Thói quen" (rose) : "🔁 Lặp" (violet))`.
+- dashboard (L485-500): logic + nhãn + màu GIỐNG HỆT (`t.category==='habit' ? "🔁 Thói quen" rose : "🔁 Lặp" violet`).
+- Cả 2 nơi: badge CHỈ hiện khi `recurrence_group_id` truthy (task thuộc chuỗi). Task thường (category='work' default, không recurrence) KHÔNG hiện badge — đúng. `habit`→🔁 Thói quen, `work`→🔁 Lặp: khớp yêu cầu, nhất quán 2 trang.
+
+### 5) Lưới "Theo dõi thói quen" CHỈ lấy chuỗi `category='habit'` — PASS
+- dashboard `habitTasks` (L308-315): lọc `t.recurrence_group_id && t.category === 'habit' && due_date trong [weekStart, weekEnd]`. Điều kiện `category === 'habit'` chặn chuỗi `work` khỏi lưới. → chuỗi 'work' (vd daily standup) KHÔNG lọt vào lưới Theo dõi thói quen. ✓
+- Chuỗi 'work' VẪN hiện trong mục "Công việc" theo project (Section 4): `activeTasks` (L292-294) lọc `status!=='done' && (!due_date || due_date<=todayYmd)` — KHÔNG lọc theo `category` → task 'work' của chuỗi (ngày hôm nay/quá hạn) vẫn xuất hiện, nhóm theo project, kèm badge "🔁 Lặp". ✓
+- **Trace:** chuỗi A `category='habit'` (5 ngày trong tuần) + chuỗi B `category='work'` (5 ngày). Lưới thói quen: chỉ A. Mục Công việc: task hôm nay của cả A lẫn B đều hiện (mục Công việc không loại habit — không phải yêu cầu loại; yêu cầu chỉ là work KHÔNG lọt lưới habit + work VẪN hiện ở Công việc → cả hai thỏa).
+
+### 6) Không có insert path khác bỏ sót — PASS
+- Grep `from('tasks').insert`: chỉ 2 điểm — chuỗi lặp (TaskForm:221, có `category`) và non-recurring (TaskForm single insert, không gửi → default 'work'). Insert subtask (tasks/[id]) không gửi `category` → subtask nhận default 'work', không có `recurrence_group_id` nên không badge — không ảnh hưởng.
+
+### Verify
+- `npx tsc --noEmit`: chưa chạy trong lần QA này (thay đổi thuần thêm 1 field vào type + string select + JSX badge; không có cấu trúc type mới). `TaskCategory` đã tồn tại và dùng nhất quán. Nếu cần chắc chắn tuyệt đối, khuyến nghị chạy `npx tsc --noEmit` trước deploy.
+
+### Fail
+- (không có lỗi ranh giới — không cần chuyển yêu cầu sửa cho frontend-developer)
+
+### Quan sát nhỏ (advisory — KHÔNG chặn)
+- Mục "Công việc" ở dashboard KHÔNG loại chuỗi `habit` → 1 chuỗi habit có task hôm nay sẽ hiện Ở CẢ lưới Theo dõi thói quen LẪN mục Công việc. Không phải lỗi (yêu cầu không đòi loại habit khỏi Công việc); nêu để rõ. Nếu muốn habit chỉ ở lưới thói quen, thêm điều kiện `t.category !== 'habit'` vào `activeTasks` — tùy quyết định sản phẩm.
+- `setTasks(... as unknown as TaskWithProject[])` (tasks/page:64, dashboard:151): query đã select `category` nên các nhánh badge/lọc đọc giá trị THẬT, không `undefined`. An toàn. Cùng mẫu advisory các QA trước.
+- **Điều kiện chạy thật:** người dùng PHẢI chạy migration `20260710130000_add_task_category.sql` trên Supabase SQL Editor. Nếu chưa: cột `category` chưa tồn tại → `.select('...category...')` và insert chuỗi có `category` sẽ lỗi "column does not exist". Đã ghi rõ schema-contract L24.
+
+### Kết luận
+- **Cross-boundary cho phân loại `category` (habit/work): PASS toàn bộ.** Cột khớp CHÍNH XÁC 3 nơi (migration NOT NULL default 'work' CHECK habit/work ↔ type ↔ query); chuỗi lặp gán `category` cho MỌI row (không sót/sai); task thường + edit không gửi `category` (dựa default DB / giữ nguyên); badge 🔁 Thói quen (habit)/🔁 Lặp (work) đúng và nhất quán /tasks + dashboard; lưới Theo dõi thói quen chỉ lấy `category='habit'`, chuỗi 'work' vẫn hiện đúng ở mục Công việc. Không có lỗi chặn.
+- Task #21 (QA): HOÀN THÀNH — không còn lỗi pending.

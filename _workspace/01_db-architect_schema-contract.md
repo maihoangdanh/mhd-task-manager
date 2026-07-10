@@ -9,6 +9,7 @@ Nguồn chuẩn (source of truth) cho frontend-developer và qa-inspector. Front
   2. `supabase/migrations/20260709160000_add_recurrence_group_id.sql` — thêm cột `recurrence_group_id` vào `tasks` (tính năng task lặp lại).
   3. `supabase/migrations/20260709170000_add_notes_goals_freelance.sql` — thêm 3 bảng `notes`, `goals`, `freelance_projects` (+ RLS) và 2 cột `completed`, `project_id` vào `schedule_events`.
   4. `supabase/migrations/20260710120000_add_parent_task_and_start_date.sql` — thêm 2 cột `parent_task_id` (subtask, self-reference) và `start_date` (Timeline view) vào `tasks` + partial index cho `parent_task_id`.
+  5. `supabase/migrations/20260710130000_add_task_category.sql` — thêm cột `category` (phân biệt `habit` / `work`) vào `tasks`.
 
 ## QUAN TRỌNG — cách áp dụng migration (người dùng tự chạy)
 
@@ -19,9 +20,10 @@ Môi trường agent này KHÔNG có network/CLI credentials tới Supabase, nê
 3. Dán toàn bộ nội dung file `supabase/migrations/20260709120000_init_schema.sql` -> **Run** (nếu đã chạy trước đó thì bỏ qua).
 4. Dán toàn bộ nội dung file `supabase/migrations/20260709160000_add_recurrence_group_id.sql` -> **Run** (migration cho task lặp lại — CẦN chạy để cột `recurrence_group_id` tồn tại).
 5. Dán toàn bộ nội dung file `supabase/migrations/20260709170000_add_notes_goals_freelance.sql` -> **Run** (migration MỚI NHẤT — tạo 3 bảng `notes`/`goals`/`freelance_projects` và thêm 2 cột `completed`/`project_id` vào `schedule_events`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
-6. Dán toàn bộ nội dung file `supabase/migrations/20260710120000_add_parent_task_and_start_date.sql` -> **Run** (migration MỚI NHẤT — thêm 2 cột `parent_task_id`, `start_date` vào `tasks` và partial index). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
-7. Kiểm tra tab **Authentication -> Policies** thấy RLS đã bật (enabled) cho cả 6 bảng (`projects`, `tasks`, `schedule_events`, `notes`, `goals`, `freelance_projects`).
-8. Kiểm tra bảng `tasks` đã có các cột `recurrence_group_id`, `parent_task_id`, `start_date`, và bảng `schedule_events` đã có 2 cột `completed`, `project_id`.
+6. Dán toàn bộ nội dung file `supabase/migrations/20260710120000_add_parent_task_and_start_date.sql` -> **Run** (thêm 2 cột `parent_task_id`, `start_date` vào `tasks` và partial index). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
+7. Dán toàn bộ nội dung file `supabase/migrations/20260710130000_add_task_category.sql` -> **Run** (migration MỚI NHẤT — thêm cột `category` vào `tasks`, phân biệt `habit` / `work`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
+8. Kiểm tra tab **Authentication -> Policies** thấy RLS đã bật (enabled) cho cả 6 bảng (`projects`, `tasks`, `schedule_events`, `notes`, `goals`, `freelance_projects`).
+9. Kiểm tra bảng `tasks` đã có các cột `recurrence_group_id`, `parent_task_id`, `start_date`, `category`, và bảng `schedule_events` đã có 2 cột `completed`, `project_id`.
 
 ## Quy ước đặt tên — điểm dễ gây lỗi ranh giới
 
@@ -75,6 +77,7 @@ RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) 
 | recurrence_group_id | uuid | có | null | Nhóm các task cùng một chuỗi lặp lại. `null` = task đơn lẻ. Thêm bởi migration `20260709160000`. Có partial index `where recurrence_group_id is not null`. |
 | parent_task_id | uuid | có | null | FK -> `tasks(id)` (self-reference), ON DELETE CASCADE (xóa task cha thì xóa luôn subtask). `null` = task gốc. Chỉ 1 cấp lồng — KHÔNG enforce bằng CHECK ở DB, UI chịu trách nhiệm không tạo subtask của subtask. Thêm bởi migration `20260710120000`. Có partial index `where parent_task_id is not null`. |
 | start_date | date | có | null | Ngày bắt đầu (chỉ ngày, không giờ), dùng cho Timeline view. `null` = chưa đặt. Thêm bởi migration `20260710120000`. |
+| category | text | không | `'work'` | CHECK enum: `habit` / `work`. Phân biệt task lặp lại là **thói quen cá nhân** (`habit`, vd tập thể dục) hay **công việc lặp lại** (`work`, vd daily standup công ty). Default `'work'` (các row cũ tự nhận giá trị này khi migration chạy). Thêm bởi migration `20260710130000`. |
 
 RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) with check (auth.uid() = user_id)`.
 
@@ -96,6 +99,12 @@ Lưu ý cho frontend: `updated_at` KHÔNG có trigger tự cập nhật ở DB. 
 - Task đơn lẻ (tạo bình thường): để `recurrence_group_id` = `null` (không gửi field này khi insert cũng được, default là null).
 - Xóa cả chuỗi: `supabase.from('tasks').delete().eq('recurrence_group_id', groupId)` — partial index giúp query này nhanh. RLS vẫn tự giới hạn theo user, không cần lọc thêm `user_id`.
 - Nhận diện task thuộc chuỗi trong UI: `row.recurrence_group_id != null`.
+
+### Cách dùng `category` (phân biệt thói quen vs công việc)
+
+- Giá trị hợp lệ: `'habit'` (thói quen cá nhân, vd tập thể dục) hoặc `'work'` (công việc lặp lại, vd daily standup). DB chặn giá trị khác bằng CHECK.
+- Default `'work'`: khi INSERT không gửi field `category`, task tự nhận `'work'`. Các row task đã tồn tại trước migration cũng nhận `'work'`.
+- Frontend nhận `row.category` (string, luôn có giá trị vì NOT NULL). Lọc theo loại: `supabase.from('tasks').select('*').eq('category', 'habit')`.
 
 ---
 

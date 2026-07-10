@@ -3,6 +3,7 @@
 
 export type TaskStatus = 'todo' | 'in_progress' | 'done'
 export type TaskPriority = 'low' | 'medium' | 'high'
+export type TaskCategory = 'habit' | 'work'
 
 export type Project = {
   id: string
@@ -25,6 +26,7 @@ export type Task = {
   recurrence_group_id: string | null // nhóm task cùng chuỗi lặp lại; null = task đơn lẻ
   parent_task_id: string | null // subtask (self-reference), 1 cấp; null = task gốc. migration 20260710120000
   start_date: string | null // kiểu date -> 'YYYY-MM-DD', dùng cho Timeline. migration 20260710120000
+  category: TaskCategory // 'habit' | 'work'; NOT NULL default 'work'. migration 20260710130000
 }
 
 // Task kèm tên project khi embed qua FK: .select('..., projects(name)')
