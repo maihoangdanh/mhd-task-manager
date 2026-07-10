@@ -240,3 +240,56 @@ Phạm vi: grep xác nhận chỉ `app/dashboard/page.tsx` + `types/database.ts`
 ### Kết luận
 - **Cross-boundary DB ↔ Frontend cho rebuild `/dashboard` + 3 bảng mới + 2 cột schedule_events: PASS toàn bộ.** Tên cột khớp CHÍNH XÁC 3 nơi (migration/type/query); `revenue` numeric→string luôn qua `Number()`; mọi INSERT set `user_id` (thỏa RLS); logic tuần thói quen + lọc ngày lịch trình + stat card đều đúng, không lệch múi giờ (đã trace). Không có lỗi chặn.
 - Task #13 (QA): HOÀN THÀNH — không còn lỗi pending.
+
+---
+
+## Kết quả QA #7 — 2026-07-10 — Redesign `/tasks`: nhóm theo project + progress bar độc lập bộ lọc (Task #15)
+
+Nguồn: `app/tasks/page.tsx` ↔ `_workspace/02_frontend-developer_pages-map.md` L27 (đã cập nhật).
+Phương pháp: đọc trực tiếp code grouping/sort/render; tự trace ví dụ số cụ thể (không tin lời agent). Đây là refactor UI thuần client — KHÔNG đổi schema/query/RLS nên trọng tâm là logic tính toán + bảo toàn tính năng cũ.
+
+### 1) Progress bar % tính trên TOÀN BỘ task nhóm — KHÔNG bị bộ lọc ảnh hưởng — PASS
+- Grouping (`useMemo`, L112-140): mỗi task được push vào `g.all` theo `project_id ?? NONE_KEY` **không lọc gì** (L117-130). Trường `visible` (L134) là bản sao ĐÃ lọc status (`filter==='all' ? g.all : g.all.filter(status===filter)`), TÁCH BIỆT với `g.all`.
+- Render progress (L187-189): `total = group.all.length`, `done = group.all.filter(status==='done').length`, `percent = round(done/total*100)`. Dùng `group.all` → độc lập hoàn toàn với `filter`. Danh sách hiển thị (L221) mới dùng `group.visible`.
+- **Trace ví dụ (tự kiểm):** project X có 5 task, 2 `done` + 3 `todo`, đang chọn filter=`todo` ("Cần làm"):
+  - `group.all` = 5 → total=5, done=2 → percent = round(2/5*100) = **40%**. Header hiện "2/5 hoàn thành" (L199), bar rộng 40% (L206), nhãn "40%" (L210). ✓
+  - `group.visible` = 3 task todo → danh sách chỉ hiện 3 dòng todo. ✓
+  - Đổi filter sang `done`: `group.all` KHÔNG đổi → percent VẪN 40%; `visible`=2 dòng done. Progress bất biến qua mọi filter. **Đúng yêu cầu.**
+- `total` luôn ≥ 1 (group chỉ tồn tại khi có ≥1 task push vào `all`) → guard `total ? ... : 0` (L189) không bao giờ chia 0; nhánh 0 là dead-safe.
+
+### 2) Sắp xếp nhóm A-Z + "Chưa phân nhóm" LUÔN cuối — PASS (kể cả tên đặc biệt)
+- Comparator (L136-139):
+  ```
+  if (a.isNone !== b.isNone) return a.isNone ? 1 : -1   // isNone luôn xuống cuối
+  return a.name.localeCompare(b.name, 'vi')              // còn lại A-Z (locale vi)
+  ```
+- **Điểm mấu chốt:** kiểm `isNone` xảy ra TRƯỚC `localeCompare`, nên nhóm null (`isNone=true`, tên literal "Chưa phân nhóm") luôn bị đẩy cuối **bất kể tên**. Dù project khác có tên bắt đầu bằng ký tự sau 'Z' (vd "Zzz", "Über", số, emoji, ký tự đặc biệt), chúng vẫn xếp trên "Chưa phân nhóm" vì so sánh tên chỉ chạy giữa các nhóm THỰC (cùng `isNone=false`). ✓
+- Lưu ý đã kiểm: tên literal "Chưa phân nhóm" bắt đầu bằng 'C' — nếu sort thuần theo tên nó sẽ lọt giữa các project chữ C, KHÔNG xuống cuối. Nhánh `isNone` chặn đúng lỗi tiềm ẩn này. Chỉ có 1 nhóm null (key `__none__` duy nhất) nên không có trường hợp 2 nhóm cùng `isNone=true`. ✓
+- `localeCompare(..., 'vi')` cho thứ tự A-Z tiếng Việt đúng cho các project thực.
+
+### 3) Tính năng cũ sau refactor — CÒN ĐỦ, không mất — PASS
+- **checkbox toggleDone (optimistic):** L89-103 (optimistic set ở L92-94, UPDATE gửi kèm `updated_at` L97 đúng contract, rollback bằng `load()` khi lỗi L101); wired ở L226-232. ✓
+- **requestDelete/deleteOne/deleteChain:** L57-87 nguyên vẹn; `requestDelete` wired ở nút Xóa L271; `deleteOne` dùng `.eq('id', id)` (L67), `deleteChain` dùng `.eq('recurrence_group_id', groupId)` (L78-80) — đúng cột, đúng điều kiện. ✓
+- **modal xóa chuỗi lặp:** L286-331, chỉ render khi `deleteTarget?.recurrence_group_id` truthy; 2 nút "Xóa chỉ ngày này"→`deleteOne` (L305), "Xóa cả chuỗi (N task)"→`deleteChain(deleteTarget.recurrence_group_id!)` (L311); non-null `!` an toàn do điều kiện render (L286). ✓
+- **badge 🔁 Lặp:** L249-256, hiện khi `task.recurrence_group_id` truthy. ✓
+- Query list (L44-47) giữ nguyên `select('id, title, status, priority, due_date, project_id, recurrence_group_id, projects(name)')` — snake_case đúng, embed FK `projects(name)` đúng quan hệ. KHÔNG đổi ranh giới DB.
+
+### 4) Nhóm rỗng sau lọc vẫn hiện header + progress + thông báo — PASS
+- Trong `<section>` (L191-280): khối header (tên nhóm + "done/total hoàn thành") + progress bar (L192-213) render **vô điều kiện**, ĐỨNG NGOÀI nhánh kiểm `visible.length`.
+- L215-219: `group.visible.length === 0` → render `<p>Không có việc nào khớp bộ lọc</p>` thay cho `<ul>`. Vì group chỉ tồn tại khi `all` không rỗng, việc `visible` rỗng chỉ xảy ra khi bị lọc → nhóm KHÔNG bị ẩn, vẫn thấy header + % thật + thông báo. ✓
+- Chỉ khi `tasks.length === 0` toàn cục (L177) mới hiện empty-state "Chưa có công việc nào" thay cho danh sách nhóm — đúng, không mâu thuẫn.
+
+### Verify
+- `npx tsc --noEmit`: **PASS** (exit 0) — không lỗi type, không `any` che lỗi.
+
+### Fail
+- (không có lỗi ranh giới, không lỗi logic — không cần chuyển yêu cầu sửa cho frontend-developer)
+
+### Quan sát nhỏ (advisory — KHÔNG chặn)
+- L49 vẫn cast `as unknown as TaskWithProject[]` (cùng mẫu advisory QA #3/#5/#6). Query đã select đủ các cột code đọc (bao gồm `recurrence_group_id`) nên các nhánh grouping/xóa/badge đọc được giá trị thật, không `undefined`. An toàn cho luồng hiện tại.
+- Grouping gộp theo `project_id` (key ổn định), tên nhóm lấy từ `t.projects?.name` của task ĐẦU TIÊN gặp trong danh sách của project đó (L123). Vì mọi task cùng `project_id` có cùng `projects.name` (join 1-1 theo FK) nên không có rủi ro lệch tên trong 1 nhóm. Khác với breakdown ở `/reports` gộp theo TÊN (advisory QA #4) — trang này gộp theo ID nên an toàn hơn, 2 project trùng tên vẫn tách nhóm đúng.
+- Giới hạn môi trường agent: nội dung sau `RequireAuth` cần đăng nhập Supabase nên không drive được end-to-end; đã xác thực qua đọc code + trace số + tsc. Nếu cần chắc chắn tuyệt đối lúc runtime, đề xuất kiểm thủ công sau đăng nhập: (1) tạo 1 project ≥3 task có done lẫn todo, bấm qua lại các filter → % phải bất biến; (2) tạo project tên "Zzz"/ký tự đặc biệt → vẫn đứng trên "Chưa phân nhóm".
+
+### Kết luận
+- **Redesign `/tasks` (nhóm theo project + progress bar độc lập bộ lọc): PASS toàn bộ.** (1) Progress % dùng `group.all` → bất biến qua filter (đã trace 2/5=40%); (2) sort A-Z + `isNone` đẩy "Chưa phân nhóm" xuống cuối bất kể tên/ký tự đặc biệt; (3) toggleDone optimistic + requestDelete/deleteOne/deleteChain + modal chuỗi + badge 🔁 còn đủ; (4) nhóm rỗng sau lọc vẫn hiện header+progress+"Không có việc nào khớp bộ lọc". Không đổi schema/query nên ranh giới DB↔Frontend giữ nguyên PASS. Không có lỗi chặn.
+- Task #15 (QA): HOÀN THÀNH — không còn lỗi pending.

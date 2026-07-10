@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import RequireAuth from '@/components/RequireAuth'
@@ -105,7 +105,39 @@ function TasksInner() {
   const counts = {
     done: tasks.filter((t) => t.status === 'done').length,
   }
-  const visible = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter)
+
+  // Nhóm task theo project. Progress bar tính trên TOÀN BỘ task của nhóm
+  // (không lọc theo status); danh sách hiển thị mới áp dụng bộ lọc trạng thái.
+  const NONE_KEY = '__none__'
+  const groups = useMemo(() => {
+    const map = new Map<
+      string,
+      { key: string; name: string; isNone: boolean; all: TaskWithProject[] }
+    >()
+    for (const t of tasks) {
+      const key = t.project_id ?? NONE_KEY
+      let g = map.get(key)
+      if (!g) {
+        g = {
+          key,
+          name: t.project_id ? t.projects?.name ?? 'Không tên' : 'Chưa phân nhóm',
+          isNone: !t.project_id,
+          all: [],
+        }
+        map.set(key, g)
+      }
+      g.all.push(t)
+    }
+    return [...map.values()]
+      .map((g) => ({
+        ...g,
+        visible: filter === 'all' ? g.all : g.all.filter((t) => t.status === filter),
+      }))
+      .sort((a, b) => {
+        if (a.isNone !== b.isNone) return a.isNone ? 1 : -1
+        return a.name.localeCompare(b.name, 'vi')
+      })
+  }, [tasks, filter])
 
   return (
     <div>
@@ -142,7 +174,7 @@ function TasksInner() {
       )}
       {loading ? (
         <Loading />
-      ) : visible.length === 0 ? (
+      ) : tasks.length === 0 ? (
         <div className="card p-10 text-center">
           <p className="text-sm text-slate-400">Chưa có công việc nào.</p>
           <Link href="/tasks/new" className="btn btn-primary mt-4">
@@ -150,61 +182,105 @@ function TasksInner() {
           </Link>
         </div>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {visible.map((task) => (
-            <li
-              key={task.id}
-              className="card flex items-center gap-3 px-4 py-3.5 transition-shadow hover:shadow-lg"
-            >
-              <input
-                type="checkbox"
-                checked={task.status === 'done'}
-                onChange={() => toggleDone(task)}
-                className="h-5 w-5 shrink-0 accent-indigo-600"
-                aria-label="Đánh dấu hoàn thành"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    href={`/tasks/${task.id}`}
-                    className={`truncate font-semibold text-slate-800 hover:text-indigo-700 ${
-                      task.status === 'done' ? 'text-slate-400 line-through' : ''
-                    }`}
-                  >
-                    {task.title}
-                  </Link>
-                  <span className={`pill ${STATUS_STYLE[task.status]}`}>
-                    {STATUS_LABEL[task.status]}
-                  </span>
-                  <span className={`pill ${PRIORITY_STYLE[task.priority]}`}>
-                    {PRIORITY_LABEL[task.priority]}
-                  </span>
-                  {task.recurrence_group_id && (
-                    <span className="pill bg-violet-100 text-violet-700" title="Task lặp lại">
-                      🔁 Lặp
+        <div className="flex flex-col gap-5">
+          {groups.map((group) => {
+            const total = group.all.length
+            const done = group.all.filter((t) => t.status === 'done').length
+            const percent = total ? Math.round((done / total) * 100) : 0
+            return (
+              <section key={group.key} className="card p-5">
+                <div className="mb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="truncate text-base font-semibold text-indigo-950">
+                      {group.isNone ? '📥 ' : '📁 '}
+                      {group.name}
+                    </h2>
+                    <span className="shrink-0 text-sm font-medium text-slate-500">
+                      {done}/{total} hoàn thành
                     </span>
-                  )}
+                  </div>
+                  <div className="mt-2.5 flex items-center gap-3">
+                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                    <span className="w-10 shrink-0 text-right text-xs font-semibold text-slate-500">
+                      {percent}%
+                    </span>
+                  </div>
                 </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-slate-400">
-                  {task.due_date && <span>📅 Hạn: {task.due_date}</span>}
-                  {task.projects?.name && <span>📁 {task.projects.name}</span>}
-                </div>
-              </div>
-              <Link
-                href={`/tasks/${task.id}`}
-                className="shrink-0 rounded-lg px-2.5 py-1 text-sm font-medium text-indigo-600 hover:bg-indigo-50"
-              >
-                Sửa
-              </Link>
-              <button
-                onClick={() => requestDelete(task)}
-                className="shrink-0 rounded-lg px-2.5 py-1 text-sm font-medium text-rose-600 hover:bg-rose-50"
-              >
-                Xóa
-              </button>
-            </li>
-          ))}
-        </ul>
+
+                {group.visible.length === 0 ? (
+                  <p className="py-2 text-sm text-slate-400">
+                    Không có việc nào khớp bộ lọc
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-3">
+                    {group.visible.map((task) => (
+                      <li
+                        key={task.id}
+                        className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-white px-4 py-3.5 transition-shadow hover:shadow-md"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={task.status === 'done'}
+                          onChange={() => toggleDone(task)}
+                          className="h-5 w-5 shrink-0 accent-indigo-600"
+                          aria-label="Đánh dấu hoàn thành"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              href={`/tasks/${task.id}`}
+                              className={`truncate font-semibold text-slate-800 hover:text-indigo-700 ${
+                                task.status === 'done' ? 'text-slate-400 line-through' : ''
+                              }`}
+                            >
+                              {task.title}
+                            </Link>
+                            <span className={`pill ${STATUS_STYLE[task.status]}`}>
+                              {STATUS_LABEL[task.status]}
+                            </span>
+                            <span className={`pill ${PRIORITY_STYLE[task.priority]}`}>
+                              {PRIORITY_LABEL[task.priority]}
+                            </span>
+                            {task.recurrence_group_id && (
+                              <span
+                                className="pill bg-violet-100 text-violet-700"
+                                title="Task lặp lại"
+                              >
+                                🔁 Lặp
+                              </span>
+                            )}
+                          </div>
+                          {task.due_date && (
+                            <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-slate-400">
+                              <span>📅 Hạn: {task.due_date}</span>
+                            </div>
+                          )}
+                        </div>
+                        <Link
+                          href={`/tasks/${task.id}`}
+                          className="shrink-0 rounded-lg px-2.5 py-1 text-sm font-medium text-indigo-600 hover:bg-indigo-50"
+                        >
+                          Sửa
+                        </Link>
+                        <button
+                          onClick={() => requestDelete(task)}
+                          className="shrink-0 rounded-lg px-2.5 py-1 text-sm font-medium text-rose-600 hover:bg-rose-50"
+                        >
+                          Xóa
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )
+          })}
+        </div>
       )}
 
       {deleteTarget && deleteTarget.recurrence_group_id && (
