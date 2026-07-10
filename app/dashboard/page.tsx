@@ -183,15 +183,16 @@ function DashboardInner() {
     }
   }
 
-  /* --- Section 4: đánh dấu task hoàn thành trực tiếp (optimistic) --------- */
+  /* --- Section 4: tick/bỏ tick hoàn thành trực tiếp (optimistic) ---------- */
   async function toggleTaskDone(t: TaskWithProject) {
     const prevStatus = t.status
+    const next: TaskStatus = t.status === 'done' ? 'todo' : 'done'
     setTasks((prev) =>
-      prev.map((x) => (x.id === t.id ? { ...x, status: 'done', updated_at: new Date().toISOString() } : x))
+      prev.map((x) => (x.id === t.id ? { ...x, status: next, updated_at: new Date().toISOString() } : x))
     )
     const { error } = await supabase
       .from('tasks')
-      .update({ status: 'done', updated_at: new Date().toISOString() })
+      .update({ status: next, updated_at: new Date().toISOString() })
       .eq('id', t.id)
     if (error) {
       alert(error.message)
@@ -286,12 +287,11 @@ function DashboardInner() {
       ? 0
       : Math.round(activeGoals.reduce((s, g) => s + g.progress_percent, 0) / activeGoals.length)
 
-  // Section 4: task chưa done VÀ không phải việc của tương lai (hạn hôm nay/quá hạn/không có hạn),
-  // nhóm theo project. Loại task có due_date > hôm nay để tránh liệt kê hàng loạt các ngày tương lai
-  // của 1 chuỗi lặp lại (mỗi ngày là 1 task riêng, chỉ ngày đó mới thuộc "việc cần làm bây giờ").
-  const activeTasks = tasks.filter(
-    (t) => t.status !== 'done' && (!t.due_date || t.due_date <= todayYmd)
-  )
+  // Section 4: task không phải việc của tương lai (hạn hôm nay/quá hạn/không có hạn), nhóm theo
+  // project. Loại task có due_date > hôm nay để tránh liệt kê hàng loạt các ngày tương lai của 1
+  // chuỗi lặp lại (mỗi ngày là 1 task riêng, chỉ ngày đó mới thuộc "việc cần làm bây giờ"). Task đã
+  // done vẫn hiển thị (gạch ngang) thay vì biến mất ngay khi tick — xem trực quan tiến độ trong ngày.
+  const activeTasks = tasks.filter((t) => !t.due_date || t.due_date <= todayYmd)
   const taskGroups = new Map<string, { name: string; items: TaskWithProject[] }>()
   for (const t of activeTasks) {
     const key = t.project_id ?? '__none__'
@@ -463,14 +463,16 @@ function DashboardInner() {
                     >
                       <input
                         type="checkbox"
-                        checked={false}
+                        checked={t.status === 'done'}
                         onChange={() => toggleTaskDone(t)}
                         title="Đánh dấu hoàn thành"
                         className="h-4 w-4 shrink-0 accent-indigo-600"
                       />
                       <Link
                         href={`/tasks/${t.id}`}
-                        className="mr-auto font-medium text-slate-700 hover:text-indigo-700"
+                        className={`mr-auto font-medium hover:text-indigo-700 ${
+                          t.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-700'
+                        }`}
                       >
                         {t.title}
                       </Link>
