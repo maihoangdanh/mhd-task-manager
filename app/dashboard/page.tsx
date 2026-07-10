@@ -51,17 +51,20 @@ const FREELANCE_STYLE: Record<FreelanceStatus, string> = {
   done: 'bg-emerald-100 text-emerald-700',
 }
 
-// Bảng màu sticky-note (nền nhạt) — người dùng chọn khi tạo note.
+// Bảng màu sticky-note (nền đặc, như giấy note dán thật) — người dùng chọn khi tạo note.
 const NOTE_COLORS: { key: string; label: string; bg: string; dot: string }[] = [
-  { key: 'amber', label: 'Vàng', bg: 'bg-amber-50 border-amber-200', dot: 'bg-amber-400' },
-  { key: 'indigo', label: 'Chàm', bg: 'bg-indigo-50 border-indigo-200', dot: 'bg-indigo-400' },
-  { key: 'emerald', label: 'Lục', bg: 'bg-emerald-50 border-emerald-200', dot: 'bg-emerald-400' },
-  { key: 'rose', label: 'Hồng', bg: 'bg-rose-50 border-rose-200', dot: 'bg-rose-400' },
-  { key: 'sky', label: 'Xanh', bg: 'bg-sky-50 border-sky-200', dot: 'bg-sky-400' },
+  { key: 'amber', label: 'Vàng', bg: 'bg-amber-200', dot: 'bg-amber-400' },
+  { key: 'indigo', label: 'Chàm', bg: 'bg-indigo-200', dot: 'bg-indigo-400' },
+  { key: 'emerald', label: 'Lục', bg: 'bg-emerald-200', dot: 'bg-emerald-400' },
+  { key: 'rose', label: 'Hồng', bg: 'bg-rose-200', dot: 'bg-rose-400' },
+  { key: 'sky', label: 'Xanh', bg: 'bg-sky-200', dot: 'bg-sky-400' },
 ]
 function noteColorClass(color: string | null): string {
-  return NOTE_COLORS.find((c) => c.key === color)?.bg ?? 'bg-slate-50 border-slate-200'
+  return NOTE_COLORS.find((c) => c.key === color)?.bg ?? 'bg-slate-200'
 }
+
+// Xoay nhẹ luân phiên từng note để trông như giấy dán thật, không thẳng hàng cứng nhắc.
+const NOTE_ROTATIONS = ['-2deg', '1.5deg', '-1deg', '2deg', '-1.5deg', '1deg']
 
 const WEEKDAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
 
@@ -617,18 +620,30 @@ function DashboardInner() {
         {notes.length === 0 ? (
           <p className="mt-4 text-sm text-slate-400">Chưa có ghi chú nào.</p>
         ) : (
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {notes.map((n) => (
+          <div className="mt-4 grid grid-cols-1 gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
+            {notes.map((n, i) => (
               <div
                 key={n.id}
-                className={`group relative rounded-xl border p-3.5 text-sm text-slate-700 ${noteColorClass(
+                style={{ transform: `rotate(${NOTE_ROTATIONS[i % NOTE_ROTATIONS.length]})` }}
+                className={`sticky-note group relative p-4 text-base text-slate-800 ${noteColorClass(
                   n.color
                 )}`}
               >
-                <p className="whitespace-pre-wrap break-words pr-5">{n.content}</p>
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    onChange={() => deleteNote(n.id)}
+                    title="Đánh dấu hoàn thành"
+                    aria-label="Đánh dấu hoàn thành"
+                    className="mt-1 h-4 w-4 shrink-0 accent-indigo-700"
+                  />
+                  <p className="font-caveat whitespace-pre-wrap break-words pr-4 pl-0.5 text-xl leading-snug">
+                    {n.content}
+                  </p>
+                </div>
                 <button
                   onClick={() => deleteNote(n.id)}
-                  className="absolute right-1.5 top-1.5 rounded-md px-1.5 text-slate-400 opacity-0 transition-opacity hover:text-rose-600 group-hover:opacity-100"
+                  className="absolute right-1.5 top-1.5 rounded-md px-1.5 text-slate-500/70 opacity-0 transition-opacity hover:text-rose-600 group-hover:opacity-100"
                   aria-label="Xóa ghi chú"
                 >
                   ✕
