@@ -287,11 +287,13 @@ function DashboardInner() {
       ? 0
       : Math.round(activeGoals.reduce((s, g) => s + g.progress_percent, 0) / activeGoals.length)
 
-  // Section 4: task không phải việc của tương lai (hạn hôm nay/quá hạn/không có hạn), nhóm theo
-  // project. Loại task có due_date > hôm nay để tránh liệt kê hàng loạt các ngày tương lai của 1
-  // chuỗi lặp lại (mỗi ngày là 1 task riêng, chỉ ngày đó mới thuộc "việc cần làm bây giờ"). Task đã
-  // done vẫn hiển thị (gạch ngang) thay vì biến mất ngay khi tick — xem trực quan tiến độ trong ngày.
-  const activeTasks = tasks.filter((t) => !t.due_date || t.due_date <= todayYmd)
+  // Section 4: CHỈ 2 loại — (1) việc có hạn đúng hôm nay (mọi trạng thái, done thì gạch ngang thay vì
+  // ẩn, để thấy tiến độ trong ngày), và (2) việc quá hạn (due_date < hôm nay) NHƯNG CHƯA hoàn thành
+  // (quá hạn mà đã done thì ẩn luôn, không cần giữ lại). Task không có due_date hoặc due_date tương
+  // lai đều không hiện ở đây.
+  const activeTasks = tasks.filter(
+    (t) => t.due_date === todayYmd || (!!t.due_date && t.due_date < todayYmd && t.status !== 'done')
+  )
   const taskGroups = new Map<string, { name: string; items: TaskWithProject[] }>()
   for (const t of activeTasks) {
     const key = t.project_id ?? '__none__'
