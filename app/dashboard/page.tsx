@@ -134,7 +134,7 @@ function DashboardInner() {
       supabase
         .from('tasks')
         .select(
-          'id, title, status, priority, due_date, project_id, recurrence_group_id, category, projects(name)'
+          'id, title, status, priority, due_date, due_time, project_id, recurrence_group_id, category, projects(name)'
         )
         .is('parent_task_id', null)
         .order('created_at', { ascending: false }),
@@ -335,15 +335,19 @@ function DashboardInner() {
       onToggle: () => toggleEvent(ev),
     }
   })
-  const habitRows: TodayRow[] = habitTodayTasks.map((t) => ({
-    key: `task-${t.id}`,
-    timeLabel: 'Cả ngày',
-    sortKey: `0-${t.title}`,
-    title: t.title,
-    source: t.projects?.name ?? 'Cá nhân',
-    done: t.status === 'done',
-    onToggle: () => toggleTaskDone(t),
-  }))
+  const habitRows: TodayRow[] = habitTodayTasks.map((t) => {
+    // due_time dạng 'HH:MM:SS' -> chỉ lấy 'HH:MM'. Có giờ thì sort như event thường; không thì "Cả ngày".
+    const hhmm = t.due_time?.slice(0, 5)
+    return {
+      key: `task-${t.id}`,
+      timeLabel: hhmm ?? 'Cả ngày',
+      sortKey: hhmm ? `1-${hhmm}` : `0-${t.title}`,
+      title: t.title,
+      source: t.projects?.name ?? 'Cá nhân',
+      done: t.status === 'done',
+      onToggle: () => toggleTaskDone(t),
+    }
+  })
   const todayRows = [...eventRows, ...habitRows].sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 
   // Section 7: chuỗi lặp có due_date trong tuần hiện tại, nhóm theo recurrence_group_id.

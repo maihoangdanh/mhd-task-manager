@@ -11,6 +11,7 @@ Nguồn chuẩn (source of truth) cho frontend-developer và qa-inspector. Front
   4. `supabase/migrations/20260710120000_add_parent_task_and_start_date.sql` — thêm 2 cột `parent_task_id` (subtask, self-reference) và `start_date` (Timeline view) vào `tasks` + partial index cho `parent_task_id`.
   5. `supabase/migrations/20260710130000_add_task_category.sql` — thêm cột `category` (phân biệt `habit` / `work`) vào `tasks`.
   6. `supabase/migrations/20260710140000_add_avatars_storage_bucket.sql` — tạo Storage bucket `avatars` (public read) + RLS policies trên `storage.objects` (avatar user). Không tạo bảng mới.
+  7. `supabase/migrations/20260710150000_add_task_due_time.sql` — thêm cột `due_time time null` vào `tasks` (giờ cụ thể tùy chọn, dùng để hiện đúng giờ trong "Lịch trình hôm nay" thay vì "Cả ngày").
 
 ## QUAN TRỌNG — cách áp dụng migration (người dùng tự chạy)
 
@@ -25,8 +26,9 @@ Môi trường agent này KHÔNG có network/CLI credentials tới Supabase, nê
 7. Dán toàn bộ nội dung file `supabase/migrations/20260710130000_add_task_category.sql` -> **Run** (thêm cột `category` vào `tasks`, phân biệt `habit` / `work`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
 8. Dán toàn bộ nội dung file `supabase/migrations/20260710140000_add_avatars_storage_bucket.sql` -> **Run** (migration MỚI NHẤT — tạo Storage bucket `avatars` + RLS policies trên `storage.objects`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor. Lưu ý: SQL Editor chạy được DDL trên schema `storage` bình thường như schema `public`.
 9. Kiểm tra tab **Authentication -> Policies** thấy RLS đã bật (enabled) cho cả 6 bảng (`projects`, `tasks`, `schedule_events`, `notes`, `goals`, `freelance_projects`).
-10. Kiểm tra bảng `tasks` đã có các cột `recurrence_group_id`, `parent_task_id`, `start_date`, `category`, và bảng `schedule_events` đã có 2 cột `completed`, `project_id`.
+10. Kiểm tra bảng `tasks` đã có các cột `recurrence_group_id`, `parent_task_id`, `start_date`, `category`, `due_time`, và bảng `schedule_events` đã có 2 cột `completed`, `project_id`.
 11. Kiểm tra tab **Storage** thấy bucket `avatars` đã tồn tại (Public = on), và **Storage -> Policies** thấy 4 policy trên `storage.objects` (public select + user-only insert/update/delete).
+12. Dán toàn bộ nội dung file `supabase/migrations/20260710150000_add_task_due_time.sql` -> **Run** (migration MỚI NHẤT — thêm cột `due_time time null` vào `tasks`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
 
 ## Quy ước đặt tên — điểm dễ gây lỗi ranh giới
 
@@ -81,6 +83,7 @@ RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) 
 | parent_task_id | uuid | có | null | FK -> `tasks(id)` (self-reference), ON DELETE CASCADE (xóa task cha thì xóa luôn subtask). `null` = task gốc. Chỉ 1 cấp lồng — KHÔNG enforce bằng CHECK ở DB, UI chịu trách nhiệm không tạo subtask của subtask. Thêm bởi migration `20260710120000`. Có partial index `where parent_task_id is not null`. |
 | start_date | date | có | null | Ngày bắt đầu (chỉ ngày, không giờ), dùng cho Timeline view. `null` = chưa đặt. Thêm bởi migration `20260710120000`. |
 | category | text | không | `'work'` | CHECK enum: `habit` / `work`. Phân biệt task lặp lại là **thói quen cá nhân** (`habit`, vd tập thể dục) hay **công việc lặp lại** (`work`, vd daily standup công ty). Default `'work'` (các row cũ tự nhận giá trị này khi migration chạy). Thêm bởi migration `20260710130000`. |
+| due_time | time | có | null | Giờ cụ thể (tùy chọn, không kèm timezone — dùng nguyên giá trị local, giống cách `due_date` không có giờ). `null` = chưa đặt giờ, hiển thị "Cả ngày" trong Lịch trình. Kiểu Postgres `time` trả về Supabase JS dạng string `"HH:MM:SS"`. Thêm bởi migration `20260710150000`. |
 
 RLS: bật. Policy `for all to authenticated` — `using (auth.uid() = user_id) with check (auth.uid() = user_id)`.
 

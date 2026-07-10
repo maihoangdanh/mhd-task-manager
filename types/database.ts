@@ -27,6 +27,7 @@ export type Task = {
   parent_task_id: string | null // subtask (self-reference), 1 cấp; null = task gốc. migration 20260710120000
   start_date: string | null // kiểu date -> 'YYYY-MM-DD', dùng cho Timeline. migration 20260710120000
   category: TaskCategory // 'habit' | 'work'; NOT NULL default 'work'. migration 20260710130000
+  due_time: string | null // kiểu time -> chuỗi 'HH:MM:SS'; null = chưa đặt giờ ("Cả ngày"). migration 20260710150000
 }
 
 // Task kèm tên project khi embed qua FK: .select('..., projects(name)')

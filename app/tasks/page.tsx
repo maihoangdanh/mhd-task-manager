@@ -50,7 +50,7 @@ function TasksInner() {
       supabase
         .from('tasks')
         .select(
-          'id, title, status, priority, due_date, project_id, recurrence_group_id, category, projects(name)'
+          'id, title, status, priority, due_date, due_time, project_id, recurrence_group_id, category, projects(name)'
         )
         .is('parent_task_id', null)
         .order('created_at', { ascending: false }),
@@ -296,7 +296,10 @@ function TasksInner() {
                           </div>
                           {task.due_date && (
                             <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-slate-400">
-                              <span>📅 Hạn: {task.due_date}</span>
+                              <span>
+                                📅 Hạn: {task.due_date}
+                                {task.due_time && ` · 🕐 ${task.due_time.slice(0, 5)}`}
+                              </span>
                             </div>
                           )}
                         </div>

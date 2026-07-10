@@ -20,6 +20,9 @@ const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
 
 const inputClass = 'input'
 const labelText = 'font-medium text-slate-600'
+// Giờ 24h dạng chữ (không dùng input type="time" vì trình duyệt vẫn hiện AM/PM theo
+// ngôn ngữ trình duyệt, không theo trang web — xem lý do tương tự ở trang /schedule).
+const TIME_PATTERN = '^([01][0-9]|2[0-3]):[0-5][0-9]$'
 
 // Thứ trong tuần theo giá trị Date.getDay() (0 = Chủ nhật ... 6 = Thứ 7).
 // Hiển thị theo thứ tự Thứ 2 -> Chủ nhật.
@@ -90,6 +93,8 @@ export default function TaskForm({ task }: { task?: Task }) {
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? 'todo')
   const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? 'medium')
   const [dueDate, setDueDate] = useState(task?.due_date ?? '')
+  // due_time từ DB dạng 'HH:MM:SS' -> chỉ giữ 'HH:MM' cho ô nhập.
+  const [dueTime, setDueTime] = useState(task?.due_time?.slice(0, 5) ?? '')
   const [taskStartDate, setTaskStartDate] = useState(task?.start_date ?? '')
   const [projectId, setProjectId] = useState<string>(task?.project_id ?? '')
   const [newProject, setNewProject] = useState('')
@@ -200,13 +205,14 @@ export default function TaskForm({ task }: { task?: Task }) {
           .update({
             ...base,
             due_date: dueDate || null,
+            due_time: dueTime || null,
             start_date: taskStartDate || null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', task.id)
         if (error) throw error
       } else if (recurring) {
-        // Tạo chuỗi task lặp lại: mỗi ngày hợp lệ = 1 row, cùng recurrence_group_id.
+        // Tạo chuỗi task lặp lại: mỗi ngày hợp lệ = 1 row, cùng recurrence_group_id + cùng giờ (nếu có).
         if (recurringDates.length === 0) {
           throw new Error('Không có ngày hợp lệ nào trong khoảng đã chọn.')
         }
@@ -214,6 +220,7 @@ export default function TaskForm({ task }: { task?: Task }) {
         const rows = recurringDates.map((d) => ({
           ...base,
           due_date: d,
+          due_time: dueTime || null,
           user_id: user.id,
           recurrence_group_id: groupId,
           category: recurringCategory,
@@ -226,6 +233,7 @@ export default function TaskForm({ task }: { task?: Task }) {
           .insert({
             ...base,
             due_date: dueDate || null,
+            due_time: dueTime || null,
             start_date: taskStartDate || null,
             user_id: user.id,
           })
@@ -323,12 +331,27 @@ export default function TaskForm({ task }: { task?: Task }) {
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium">Hạn chót</span>
-            <input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className={inputClass}
-            />
+            <div className="flex gap-2">
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className={`${inputClass} flex-1`}
+              />
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="HH:MM"
+                pattern={TIME_PATTERN}
+                title="Giờ theo định dạng 24h, ví dụ 14:30 (để trống nếu không cần giờ cụ thể)"
+                value={dueTime}
+                onChange={(e) => setDueTime(e.target.value)}
+                className={`${inputClass} w-20`}
+              />
+            </div>
+            <span className="text-xs text-slate-400">
+              Giờ tùy chọn — có giờ thì task hiện trong Lịch trình hôm nay thay vì chỉ Công việc.
+            </span>
           </label>
         </div>
       ) : (
@@ -387,6 +410,23 @@ export default function TaskForm({ task }: { task?: Task }) {
               />
             </label>
           </div>
+
+          <label className="flex flex-col gap-1 text-sm">
+            <span className={labelText}>Giờ cụ thể (tùy chọn, áp dụng cho cả chuỗi)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="HH:MM"
+              pattern={TIME_PATTERN}
+              title="Giờ theo định dạng 24h, ví dụ 06:30 (để trống nếu không cần giờ cụ thể)"
+              value={dueTime}
+              onChange={(e) => setDueTime(e.target.value)}
+              className={`${inputClass} w-24`}
+            />
+            <span className="text-xs text-slate-400">
+              Có giờ thì cả chuỗi hiện trong Lịch trình hôm nay thay vì chỉ Công việc.
+            </span>
+          </label>
 
           <div className="flex flex-col gap-2 text-sm">
             <span className={labelText}>Bỏ qua các thứ trong tuần</span>
