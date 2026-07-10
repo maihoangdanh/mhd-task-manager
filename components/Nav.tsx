@@ -10,6 +10,7 @@ const links = [
   { href: '/timeline', label: 'Timeline' },
   { href: '/schedule', label: 'Lịch trình' },
   { href: '/reports', label: 'Thống kê' },
+  { href: '/settings', label: 'Cài đặt' },
 ]
 
 export default function Nav() {
@@ -19,6 +20,14 @@ export default function Nav() {
 
   // Không hiện nav ở trang login
   if (pathname === '/login') return null
+
+  // Đọc avatar/tên từ user_metadata (kiểu index `any` từ supabase-js) an toàn, không dùng `any`.
+  const meta = user?.user_metadata as
+    | { full_name?: unknown; avatar_url?: unknown }
+    | undefined
+  const avatarUrl = typeof meta?.avatar_url === 'string' ? meta.avatar_url : ''
+  const fullName = typeof meta?.full_name === 'string' ? meta.full_name : ''
+  const navInitial = (fullName.trim() || user?.email || '?').charAt(0).toUpperCase()
 
   return (
     <header className="sticky top-0 z-20 border-b border-[var(--line)] bg-white/80 backdrop-blur-md">
@@ -51,9 +60,27 @@ export default function Nav() {
         </div>
         {user && (
           <div className="flex items-center gap-3 text-sm">
-            <span className="hidden max-w-[16ch] truncate text-slate-400 md:inline">
-              {user.email}
-            </span>
+            <Link
+              href="/settings"
+              className="flex items-center gap-2"
+              title="Cài đặt"
+            >
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={avatarUrl}
+                  alt="Ảnh đại diện"
+                  className="h-7 w-7 rounded-full object-cover ring-1 ring-indigo-100"
+                />
+              ) : (
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-600 text-xs font-bold text-white">
+                  {navInitial}
+                </span>
+              )}
+              <span className="hidden max-w-[16ch] truncate text-slate-400 md:inline">
+                {user.email}
+              </span>
+            </Link>
             <button
               onClick={async () => {
                 await signOut()

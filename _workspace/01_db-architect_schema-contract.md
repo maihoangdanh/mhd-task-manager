@@ -10,6 +10,7 @@ Nguồn chuẩn (source of truth) cho frontend-developer và qa-inspector. Front
   3. `supabase/migrations/20260709170000_add_notes_goals_freelance.sql` — thêm 3 bảng `notes`, `goals`, `freelance_projects` (+ RLS) và 2 cột `completed`, `project_id` vào `schedule_events`.
   4. `supabase/migrations/20260710120000_add_parent_task_and_start_date.sql` — thêm 2 cột `parent_task_id` (subtask, self-reference) và `start_date` (Timeline view) vào `tasks` + partial index cho `parent_task_id`.
   5. `supabase/migrations/20260710130000_add_task_category.sql` — thêm cột `category` (phân biệt `habit` / `work`) vào `tasks`.
+  6. `supabase/migrations/20260710140000_add_avatars_storage_bucket.sql` — tạo Storage bucket `avatars` (public read) + RLS policies trên `storage.objects` (avatar user). Không tạo bảng mới.
 
 ## QUAN TRỌNG — cách áp dụng migration (người dùng tự chạy)
 
@@ -21,9 +22,11 @@ Môi trường agent này KHÔNG có network/CLI credentials tới Supabase, nê
 4. Dán toàn bộ nội dung file `supabase/migrations/20260709160000_add_recurrence_group_id.sql` -> **Run** (migration cho task lặp lại — CẦN chạy để cột `recurrence_group_id` tồn tại).
 5. Dán toàn bộ nội dung file `supabase/migrations/20260709170000_add_notes_goals_freelance.sql` -> **Run** (migration MỚI NHẤT — tạo 3 bảng `notes`/`goals`/`freelance_projects` và thêm 2 cột `completed`/`project_id` vào `schedule_events`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
 6. Dán toàn bộ nội dung file `supabase/migrations/20260710120000_add_parent_task_and_start_date.sql` -> **Run** (thêm 2 cột `parent_task_id`, `start_date` vào `tasks` và partial index). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
-7. Dán toàn bộ nội dung file `supabase/migrations/20260710130000_add_task_category.sql` -> **Run** (migration MỚI NHẤT — thêm cột `category` vào `tasks`, phân biệt `habit` / `work`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
-8. Kiểm tra tab **Authentication -> Policies** thấy RLS đã bật (enabled) cho cả 6 bảng (`projects`, `tasks`, `schedule_events`, `notes`, `goals`, `freelance_projects`).
-9. Kiểm tra bảng `tasks` đã có các cột `recurrence_group_id`, `parent_task_id`, `start_date`, `category`, và bảng `schedule_events` đã có 2 cột `completed`, `project_id`.
+7. Dán toàn bộ nội dung file `supabase/migrations/20260710130000_add_task_category.sql` -> **Run** (thêm cột `category` vào `tasks`, phân biệt `habit` / `work`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor.
+8. Dán toàn bộ nội dung file `supabase/migrations/20260710140000_add_avatars_storage_bucket.sql` -> **Run** (migration MỚI NHẤT — tạo Storage bucket `avatars` + RLS policies trên `storage.objects`). **CHƯA chạy thật** trong môi trường agent (không có network) — người dùng CẦN tự chạy trong SQL Editor. Lưu ý: SQL Editor chạy được DDL trên schema `storage` bình thường như schema `public`.
+9. Kiểm tra tab **Authentication -> Policies** thấy RLS đã bật (enabled) cho cả 6 bảng (`projects`, `tasks`, `schedule_events`, `notes`, `goals`, `freelance_projects`).
+10. Kiểm tra bảng `tasks` đã có các cột `recurrence_group_id`, `parent_task_id`, `start_date`, `category`, và bảng `schedule_events` đã có 2 cột `completed`, `project_id`.
+11. Kiểm tra tab **Storage** thấy bucket `avatars` đã tồn tại (Public = on), và **Storage -> Policies** thấy 4 policy trên `storage.objects` (public select + user-only insert/update/delete).
 
 ## Quy ước đặt tên — điểm dễ gây lỗi ranh giới
 
@@ -216,3 +219,56 @@ const { data } = await supabase
 ```
 
 Lưu ý: KHÔNG cần lọc `.eq('user_id', ...)` để bảo mật — RLS đã tự chặn theo `auth.uid()`. Nhưng KHI INSERT vẫn phải set `user_id` = id user hiện tại (lấy từ `supabase.auth.getUser()`), nếu không `with check` sẽ chặn.
+
+---
+
+## Profile: full_name + avatar_url nằm trong `user_metadata` (KHÔNG có bảng riêng)
+
+Tên hiển thị và ảnh đại diện KHÔNG lưu trong một bảng `profiles`. Chúng lưu trực tiếp vào `user_metadata` của Supabase Auth. Frontend cập nhật qua `supabase.auth.updateUser()`, đọc lại qua `supabase.auth.getUser()`.
+
+- Không có bảng/RLS riêng cho profile — Auth tự quản lý, mỗi user chỉ đọc/ghi metadata của chính mình.
+- Key quy ước trong `user_metadata`:
+  - `full_name` (string) — tên hiển thị.
+  - `avatar_url` (string) — public URL của ảnh đại diện (lấy từ `storage.from('avatars').getPublicUrl(path)`).
+
+```js
+// Cập nhật tên + avatar_url
+await supabase.auth.updateUser({
+  data: { full_name: 'Tên Hiển Thị', avatar_url: publicUrl }
+});
+
+// Đọc lại
+const { data: { user } } = await supabase.auth.getUser();
+user.user_metadata.full_name;   // string | undefined
+user.user_metadata.avatar_url;  // string | undefined
+```
+
+---
+
+## Storage bucket: avatars (ảnh đại diện)
+
+Thêm bởi migration `20260710140000_add_avatars_storage_bucket.sql`. Đây là Supabase **Storage** (không phải bảng Postgres) — dùng `supabase.storage`.
+
+- Bucket id/name: `avatars`. `public = true` -> ảnh đọc được công khai qua public URL (`getPublicUrl`), không cần signed URL.
+- **Quy ước path bắt buộc: `{user_id}/avatar.{ext}`** — thư mục cấp 1 của tên object PHẢI là `user_id` của user hiện tại. RLS chặn user ghi vào thư mục của người khác.
+  - Ví dụ: `d3b0.../avatar.png` (với `d3b0...` = `auth.uid()`).
+  - `{ext}` tùy loại file (`png`, `jpg`, `webp`...). Nếu muốn ghi đè ảnh cũ, dùng cùng tên file + `upsert: true`.
+- RLS trên `storage.objects` (4 policy):
+  - `select`: công khai (mọi người) đọc được object trong bucket `avatars`.
+  - `insert` / `update` / `delete`: chỉ `authenticated`, và chỉ khi `auth.uid()::text = (storage.foldername(name))[1]` (thư mục cấp 1 = user_id của họ).
+
+```js
+// Upload/ghi đè avatar của user hiện tại
+const { data: { user } } = await supabase.auth.getUser();
+const ext = file.name.split('.').pop();
+const path = `${user.id}/avatar.${ext}`;
+
+await supabase.storage.from('avatars').upload(path, file, { upsert: true });
+
+// Lấy public URL để lưu vào user_metadata.avatar_url
+const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+const publicUrl = data.publicUrl;
+await supabase.auth.updateUser({ data: { avatar_url: publicUrl } });
+```
+
+Lưu ý cho frontend: path PHẢI bắt đầu bằng `${user.id}/`, nếu không policy `with check` sẽ chặn upload (lỗi RLS). Không hardcode user_id — luôn lấy từ `supabase.auth.getUser()`.

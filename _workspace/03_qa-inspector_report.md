@@ -409,3 +409,52 @@ Phương pháp: đọc đồng thời migration ↔ type ↔ 3 nơi code; grep t
 ### Kết luận
 - **Cross-boundary cho phân loại `category` (habit/work): PASS toàn bộ.** Cột khớp CHÍNH XÁC 3 nơi (migration NOT NULL default 'work' CHECK habit/work ↔ type ↔ query); chuỗi lặp gán `category` cho MỌI row (không sót/sai); task thường + edit không gửi `category` (dựa default DB / giữ nguyên); badge 🔁 Thói quen (habit)/🔁 Lặp (work) đúng và nhất quán /tasks + dashboard; lưới Theo dõi thói quen chỉ lấy `category='habit'`, chuỗi 'work' vẫn hiện đúng ở mục Công việc. Không có lỗi chặn.
 - Task #21 (QA): HOÀN THÀNH — không còn lỗi pending.
+
+---
+
+## Kết quả QA #10 — 2026-07-10 — Trang `/settings` (đổi tên hiển thị + avatar) + bucket Storage `avatars` (Task #24)
+
+Nguồn: `supabase/migrations/20260710140000_add_avatars_storage_bucket.sql` + schema-contract L225-274 ↔ `app/settings/page.tsx`, `components/Nav.tsx`, `components/AuthProvider.tsx`, `_workspace/02_frontend-developer_pages-map.md` (đã cập nhật).
+Phương pháp: đọc đồng thời migration (RLS policy) ↔ code page/nav; grep toàn repo mọi nơi chạm `user_metadata`/`avatar_url`/`full_name`/`storage.from`/`upload`/`getPublicUrl`/`updateUser` để xác nhận không có code path nào bỏ qua quy ước.
+
+### 1) Path upload avatar LUÔN bắt đầu bằng `${user.id}/` (khớp RLS `storage.foldername(name))[1]`) — PASS
+- settings/page.tsx:44 — điểm sinh path DUY NHẤT: `const path = \`${user.id}/avatar.${ext}\``. Thư mục cấp 1 = `user.id` → khớp policy `with check (bucket_id='avatars' and auth.uid()::text = (storage.foldername(name))[1])` (migration L38-40).
+- Guard L37 `if (!file || !user) return` → `user` non-null khi tới L44; `user.id` lấy từ session Supabase Auth (AuthProvider: `user: session?.user ?? null`), KHÔNG hardcode → luôn là `auth.uid()` thật. Thỏa RLS INSERT/UPDATE.
+- Grep toàn repo: chỉ 1 lệnh `.upload(` (settings:47) và 1 `storage.from('avatars')` cho upload + 1 cho getPublicUrl (settings:45-49). KHÔNG có code path upload thứ 2 nào bỏ qua tiền tố `${user.id}/`. `bucket = 'avatars'` khớp bucket id migration L24. **PASS — không có đường ghi nào lách RLS.**
+- Public read khớp: bucket `public=true` (migration L24) + policy select công khai (L34-36) → `getPublicUrl` (không signed) hiển thị được ảnh. Đúng.
+
+### 2) Key `full_name` / `avatar_url` — không lệch tên field ở mọi chỗ đọc/ghi — PASS
+- GHI (settings:67-68): `supabase.auth.updateUser({ data: { full_name: fullName.trim(), avatar_url: avatarUrl } })` — đúng 2 key contract L230-232.
+- ĐỌC prefill (settings:30-31): `readStringMeta(user.user_metadata, 'full_name')` / `'avatar_url'` — cùng key.
+- ĐỌC ở Nav (Nav:28-29): `meta?.avatar_url` / `meta?.full_name` — cùng key.
+- Grep toàn repo xác nhận chỉ 2 file (settings, Nav) chạm các key này; KHÔNG có biến thể `fullName`/`avatarUrl` bị dùng làm KEY metadata (chúng chỉ là tên biến React state, không phải key gửi lên Auth). **KHỚP tuyệt đối — không field drift.**
+
+### 3) Đọc `user_metadata` an toàn (không `any`, guard string) — PASS
+- settings: helper `readStringMeta(meta: { [key: string]: unknown } | undefined, key)` (L9-15) — tham số kiểu `unknown`-indexed (KHÔNG `any`), trả `typeof v === 'string' ? v : ''`. Nếu metadata thiếu key hoặc kiểu khác → trả `''`, không crash.
+- Nav: cast `user?.user_metadata as { full_name?: unknown; avatar_url?: unknown } | undefined` (L25-27) + guard `typeof meta?.x === 'string'` (L28-29). KHÔNG `any`.
+- `npx tsc --noEmit`: **PASS (exit 0)** — không lỗi type, không `any` né lỗi.
+
+### 4) Nav — link "Cài đặt" trỏ đúng `/settings`, avatar/chữ cái đầu hợp lý — PASS
+- `links` (Nav:13): `{ href: '/settings', label: 'Cài đặt' }` ↔ file `app/settings/page.tsx` tồn tại (route thật). Cụm avatar+email cũng là `<Link href="/settings">` (Nav:63-64). Cả 2 đường vào /settings đều đúng route.
+- Hiển thị: `avatarUrl` truthy → `<img src={avatarUrl}>` (7x7 tròn, object-cover); rỗng → `navInitial` = `(fullName.trim() || user.email || '?').charAt(0).toUpperCase()` trên nền gradient (Nav:30,68-79). Fallback hợp lý (tên → email → '?'), không crash khi thiếu cả hai. Nav ẩn ở `/login` (L22) và cả cụm user chỉ render khi `user` truthy (L61). ✓
+- Active-state `pathname === l.href || pathname.startsWith(l.href + '/')` (L45) đúng cho `/settings`.
+
+### 5) Cache ảnh — có cache-buster, tránh hiện ảnh cũ sau khi đổi ảnh — PASS
+- Path cố định theo ext + `upsert: true` (settings:47) → cùng public URL khi đổi ảnh cùng đuôi → nguy cơ browser cache ảnh cũ. Đã xử lý: sau upload, `setAvatarUrl(\`${data.publicUrl}?t=${Date.now()}\`)` (settings:49-51) thêm query `?t=<timestamp>`.
+- **Quan trọng — cache-buster BỀN across reload:** URL kèm `?t=T` được lưu vào `user_metadata.avatar_url` khi bấm "Lưu thay đổi" (settings:68). Lần upload sau sinh `T2 ≠ T1` → metadata cập nhật URL mới → reload/trang khác (Nav đọc thẳng `avatar_url` từ metadata) nhận URL `?t=T2`, khác cache key cũ → browser tải ảnh mới, KHÔNG kẹt ảnh cũ. Trace: ảnh A→`?t=T1` lưu; ảnh B (cùng path upsert)→`?t=T2` preview đổi ngay + lưu → mọi nơi đọc metadata thấy T2. ✓
+
+### Verify
+- `npx tsc --noEmit`: **PASS** (exit 0).
+
+### Fail
+- (không có lỗi ranh giới chặn — không cần chuyển yêu cầu sửa cho frontend-developer)
+
+### Quan sát nhỏ (advisory — KHÔNG chặn)
+- **File avatar mồ côi khi đổi đuôi ảnh:** path là `avatar.${ext}` với `ext` theo tên file người dùng chọn. Upload `photo.png` → `userid/avatar.png`; sau đó upload `photo.jpg` → `userid/avatar.jpg` (path KHÁC, không upsert đè `avatar.png`) → file `.png` cũ còn lại trong bucket (mồ côi, không ai trỏ tới). KHÔNG phải cache bug (URL mới khác hẳn nên không kẹt cache) và không phải lỗi RLS/runtime; chỉ tốn dung lượng Storage nhỏ. Nếu muốn sạch, có thể chuẩn hóa ext cố định (vd luôn `.png`) hoặc xóa file cũ trước khi upload. Tùy quyết định — không chặn.
+- **Điều kiện chạy thật:** người dùng PHẢI chạy migration `20260710140000_add_avatars_storage_bucket.sql` trên Supabase SQL Editor (tạo bucket `avatars` + 4 policy trên `storage.objects`). Nếu chưa: upload lỗi "Bucket not found" hoặc RLS chặn. `full_name`/`avatar_url` không cần bảng/migration (Auth `user_metadata` tự có). Đã ghi rõ schema-contract L26/L248-274.
+- **Đổi metadata cần refresh session để Nav cập nhật:** `updateUser` cập nhật user phía server; AuthProvider nghe `onAuthStateChange` (thường phát `USER_UPDATED`) nên Nav sẽ nhận avatar/tên mới. Nếu môi trường không phát event, cần reload trang để Nav đọc lại `user_metadata`. Không phải lỗi biên DB↔FE; nêu để QA thủ công lưu ý.
+- Giới hạn môi trường agent: trang sau `RequireAuth` cần đăng nhập Supabase + bucket đã tạo nên không drive upload+save end-to-end; xác thực qua đọc đồng thời migration↔code + grep toàn repo + tsc. Kiểm thủ công sau đăng nhập (đã chạy migration): (1) prefill tên đúng từ metadata, sửa + "Lưu" → reload còn; (2) chọn ảnh → upload path `${user.id}/avatar.{ext}` KHÔNG lỗi RLS, preview tròn đổi ngay; (3) "Lưu" ghi cả `full_name`+`avatar_url` vào metadata; (4) Nav hiện avatar nhỏ/chữ cái đầu, click → /settings; (5) chưa có avatar → chữ cái đầu trên nền gradient.
+
+### Kết luận
+- **Cross-boundary cho `/settings` + bucket `avatars`: PASS toàn bộ.** (1) Path upload DUY NHẤT luôn tiền tố `${user.id}/` (khớp RLS `storage.foldername`), không code path lách; (2) key `full_name`/`avatar_url` nhất quán mọi chỗ đọc/ghi (settings + Nav), không field drift; (3) đọc `user_metadata` an toàn qua helper `readStringMeta`/guard `typeof string`, không `any`; (4) Nav link + avatar/chữ cái đầu đúng route `/settings` và fallback hợp lý; (5) cache-buster `?t=Date.now()` được lưu vào metadata → bền qua reload, tránh kẹt ảnh cũ. `tsc` PASS. Không có lỗi chặn. 1 advisory nhỏ: file avatar mồ côi khi đổi đuôi ảnh (không phải cache/runtime bug).
+- Task #24 (QA): HOÀN THÀNH — không còn lỗi pending.
