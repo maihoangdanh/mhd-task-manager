@@ -289,16 +289,19 @@ function DashboardInner() {
       ? 0
       : Math.round(activeGoals.reduce((s, g) => s + g.progress_percent, 0) / activeGoals.length)
 
-  // Section 4: CHỈ 2 loại — (1) việc có hạn đúng hôm nay (mọi trạng thái, done thì gạch ngang thay vì
-  // ẩn, để thấy tiến độ trong ngày), và (2) việc quá hạn (due_date < hôm nay) NHƯNG CHƯA hoàn thành
-  // (quá hạn mà đã done thì ẩn luôn, không cần giữ lại). Task không có due_date hoặc due_date tương
-  // lai đều không hiện ở đây. Task category='habit' KHÔNG hiện ở đây nữa — chuyển hẳn sang khối
-  // "Lịch trình hôm nay" (section 3) vì bản chất là thói quen/lịch trình cố định, không phải việc cần làm.
-  const activeTasks = tasks.filter(
-    (t) =>
-      t.category !== 'habit' &&
-      (t.due_date === todayYmd || (!!t.due_date && t.due_date < todayYmd && t.status !== 'done'))
-  )
+  // Section 4: CHỈ 3 loại — (1) việc có hạn đúng hôm nay (mọi trạng thái, done thì gạch ngang thay vì
+  // ẩn, để thấy tiến độ trong ngày); (2) việc quá hạn (due_date < hôm nay) NHƯNG CHƯA hoàn thành (quá
+  // hạn mà đã done thì ẩn luôn); và (3) việc đang trong khoảng xử lý — start_date <= hôm nay <= due_date
+  // (hoặc chưa có due_date) — vd task bắt đầu hôm nay nhưng hạn tuần sau vẫn cần hiện ra để biết đang
+  // làm. Task category='habit' KHÔNG hiện ở đây — chuyển hẳn sang khối "Lịch trình hôm nay" (section 3).
+  const activeTasks = tasks.filter((t) => {
+    if (t.category === 'habit') return false
+    const dueToday = t.due_date === todayYmd
+    const overdueUnfinished = !!t.due_date && t.due_date < todayYmd && t.status !== 'done'
+    const inProgressWindow =
+      !!t.start_date && t.start_date <= todayYmd && (!t.due_date || t.due_date > todayYmd)
+    return dueToday || overdueUnfinished || inProgressWindow
+  })
   const taskGroups = new Map<string, { name: string; items: TaskWithProject[] }>()
   for (const t of activeTasks) {
     const key = t.project_id ?? '__none__'
