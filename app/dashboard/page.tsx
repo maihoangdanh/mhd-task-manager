@@ -134,7 +134,7 @@ function DashboardInner() {
       supabase
         .from('tasks')
         .select(
-          'id, title, status, priority, due_date, due_time, project_id, recurrence_group_id, category, projects(name)'
+          'id, title, status, priority, due_date, due_time, start_date, project_id, recurrence_group_id, category, projects(name)'
         )
         .is('parent_task_id', null)
         .order('created_at', { ascending: false }),
